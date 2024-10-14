@@ -12,24 +12,32 @@ void FileExtractor::extractFiles(const std::string& input_filename) const {
     if (!input_file) {
         throw std::runtime_error("Unable to open input file: " + input_filename);
     }
+    extractFiles(input_file, nullptr);
+}
 
+void FileExtractor::extractFiles(std::istream& input, std::ostream* output) const {
     std::string line;
     std::string current_file;
     std::ostringstream current_content;
     bool expect_empty_line = false;
 
-    auto writeFile = [this](const std::string& file, const std::string& content) {
+    auto writeFile = [this, output](const std::string& file, const std::string& content) {
         if (!file.empty()) {
-            createDirectoryIfNotExists(std::filesystem::path(file).parent_path());
-            std::ofstream output_file(file);
-            if (!output_file) {
-                throw std::runtime_error("Unable to create output file: " + file);
+            if (output) {
+                (*output) << "Extracted file: " << file << "\n";
+                (*output) << content << "\n";
+            } else {
+                createDirectoryIfNotExists(std::filesystem::path(file).parent_path());
+                std::ofstream output_file(file);
+                if (!output_file) {
+                    throw std::runtime_error("Unable to create output file: " + file);
+                }
+                output_file << content;
             }
-            output_file << content;
         }
     };
 
-    while (std::getline(input_file, line)) {
+    while (std::getline(input, line)) {
         if (line == BOUNDARY_STRING) {
             writeFile(current_file, current_content.str());
             current_file.clear();

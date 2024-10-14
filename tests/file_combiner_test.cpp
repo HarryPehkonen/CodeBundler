@@ -4,6 +4,7 @@
 #include "../src/file_combiner.hpp"
 #include <fstream>
 #include <filesystem>
+#include <sstream>
 
 class FileCombinerTest : public ::testing::Test {
 protected:
@@ -30,12 +31,26 @@ protected:
     }
 };
 
-TEST_F(FileCombinerTest, CombinesFilesCorrectly) {
+TEST_F(FileCombinerTest, CombinesFilesToFile) {
     combiner.combineFiles({"test_src"}, "combined_output.txt");
 
     std::ifstream combined_file("combined_output.txt");
     std::string content((std::istreambuf_iterator<char>(combined_file)),
                          std::istreambuf_iterator<char>());
+
+    EXPECT_TRUE(content.find("Path: test_src/test1.cpp") != std::string::npos);
+    EXPECT_TRUE(content.find("Test content 1") != std::string::npos);
+    EXPECT_TRUE(content.find("Path: test_src/test2.cpp") != std::string::npos);
+    EXPECT_TRUE(content.find("Test content 2") != std::string::npos);
+    EXPECT_TRUE(content.find("Path: test_src/CMakeLists.txt") != std::string::npos);
+    EXPECT_TRUE(content.find("Test CMake content") != std::string::npos);
+}
+
+TEST_F(FileCombinerTest, CombinesFilesToStream) {
+    std::ostringstream output_stream;
+    combiner.combineFiles({"test_src"}, output_stream);
+
+    std::string content = output_stream.str();
 
     EXPECT_TRUE(content.find("Path: test_src/test1.cpp") != std::string::npos);
     EXPECT_TRUE(content.find("Test content 1") != std::string::npos);

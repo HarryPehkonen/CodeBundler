@@ -14,9 +14,10 @@ void showExample() {
 
 void showUsage(std::string_view my_name) {
     std::cerr << "Usage:\n";
-    std::cerr << my_name << " [combine|extract] <filename>\n";
+    std::cerr << my_name << " [combine|extract] [<filename>]\n";
     std::cerr << my_name << " example\n";
     std::cerr << std::endl;
+    std::cerr << "If <filename> is not provided, the program will read from stdin and write to stdout.\n";
 }
 
 int main(int argc, char* argv[]) {
@@ -32,20 +33,27 @@ int main(int argc, char* argv[]) {
             processor.addMatcher(std::make_unique<ExactNameMatcher>("CMakeLists.txt"));
 
             FileCombiner combiner(processor);
-            combiner.combineFiles({SRC_DIR, TESTS_DIR}, filename);
-            std::cout << "Files combined successfully into " << filename << std::endl;
+            if (filename.empty()) {
+                combiner.combineFiles({SRC_DIR, TESTS_DIR}, std::cout);
+                std::cerr << "Files combined successfully to stdout" << std::endl;
+            } else {
+                combiner.combineFiles({SRC_DIR, TESTS_DIR}, filename);
+                std::cout << "Files combined successfully into " << filename << std::endl;
+            }
         } else if (mode == "extract") {
             FileExtractor extractor;
-            extractor.extractFiles(filename);
-            std::cout << "Files extracted successfully from " << filename << std::endl;
+            if (filename.empty()) {
+                extractor.extractFiles(std::cin, &std::cout);
+                std::cerr << "Files extracted successfully to stdout" << std::endl;
+            } else {
+                extractor.extractFiles(filename);
+                std::cout << "Files extracted successfully from " << filename << std::endl;
+            }
         } else if (mode == "example") {
             showExample();
             return 0;
-        } else if (mode == "") {
-            showUsage(std::string_view(argv[0]));
-            return 1;
         } else {
-            std::cerr << "Invalid mode. Use 'example', 'combine' or 'extract'." << std::endl;
+            showUsage(std::string_view(argv[0]));
             return 1;
         }
     } catch (const std::exception& e) {

@@ -13,21 +13,24 @@ void FileCombiner::combineFiles(const std::vector<std::filesystem::path>& direct
     if (!output_file) {
         throw std::runtime_error("Unable to open output file: " + output_filename);
     }
+    combineFiles(directories, output_file);
+}
 
+void FileCombiner::combineFiles(const std::vector<std::filesystem::path>& directories, std::ostream& output) const {
     for (const auto& directory : directories) {
         for (const auto& file_path : processor_.getMatchingFiles(directory)) {
-            output_file << BOUNDARY_STRING << '\n';
-            output_file << "Path: " << file_path.relative_path().string() << '\n' << '\n';
+            output << BOUNDARY_STRING << '\n';
+            output << "Path: " << file_path.relative_path().string() << '\n' << '\n';
             
             std::ifstream input_file(file_path);
             if (!input_file) {
                 throw std::runtime_error("Unable to open input file: " + file_path.string());
             }
             
-            output_file << input_file.rdbuf();
-            output_file << '\n';
+            output << input_file.rdbuf();
+            output << '\n';
         }
     }
 
-    output_file << BOUNDARY_STRING << '\n';
+    output << BOUNDARY_STRING << '\n';
 }

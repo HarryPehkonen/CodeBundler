@@ -5,6 +5,7 @@
 #include "../src/constants.hpp"
 #include <fstream>
 #include <filesystem>
+#include <sstream>
 
 class FileExtractorTest : public ::testing::Test {
 protected:
@@ -31,7 +32,7 @@ protected:
     }
 };
 
-TEST_F(FileExtractorTest, ExtractsFilesCorrectly) {
+TEST_F(FileExtractorTest, ExtractsFilesFromFile) {
     extractor.extractFiles(test_file);
 
     EXPECT_TRUE(std::filesystem::exists(test_dir + "/file1.cpp"));
@@ -48,6 +49,19 @@ TEST_F(FileExtractorTest, ExtractsFilesCorrectly) {
     EXPECT_EQ(content2, "Test content 2\n");
 }
 
+TEST_F(FileExtractorTest, ExtractsFilesToStream) {
+    std::ifstream input_file(test_file);
+    std::ostringstream output_stream;
+
+    extractor.extractFiles(input_file, &output_stream);
+
+    std::string content = output_stream.str();
+    EXPECT_TRUE(content.find("Extracted file: " + test_dir + "/file1.cpp") != std::string::npos);
+    EXPECT_TRUE(content.find("Test content 1") != std::string::npos);
+    EXPECT_TRUE(content.find("Extracted file: " + test_dir + "/file2.cpp") != std::string::npos);
+    EXPECT_TRUE(content.find("Test content 2") != std::string::npos);
+}
+
 TEST_F(FileExtractorTest, ThrowsOnMalformedInput) {
     std::ofstream bad_file("bad_combined.txt");
     bad_file << BOUNDARY_STRING << "\n";
@@ -57,4 +71,10 @@ TEST_F(FileExtractorTest, ThrowsOnMalformedInput) {
     bad_file.close();
 
     EXPECT_THROW(extractor.extractFiles("bad_combined.txt"), std::runtime_error);
+
+    std::ifstream bad_input("bad_combined.txt");
+    std::ostringstream output;
+    EXPECT_THROW(extractor.extractFiles(bad_input, &output), std::runtime_error);
+
+    std::filesystem::remove("bad_combined.txt");
 }
