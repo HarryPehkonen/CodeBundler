@@ -43,8 +43,8 @@ int main(int argc, char* argv[]) {
         } else if (mode == "extract") {
             FileExtractor extractor;
             if (filename.empty()) {
-                extractor.extractFiles(std::cin, &std::cout);
-                std::cerr << "Files extracted successfully to stdout" << std::endl;
+                extractor.extractFiles(std::cin);
+                std::cerr << "Files extracted successfully from stdin" << std::endl;
             } else {
                 extractor.extractFiles(filename);
                 std::cout << "Files extracted successfully from " << filename << std::endl;
