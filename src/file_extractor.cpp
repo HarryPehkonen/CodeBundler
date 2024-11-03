@@ -7,6 +7,8 @@
 #include <sstream>
 #include <stdexcept>
 
+FileExtractor::FileExtractor(const bool verbose) : verbose_(verbose) {}
+
 void FileExtractor::extractFiles(const std::string& input_filename) const {
     std::ifstream input_file(input_filename);
     if (!input_file) {

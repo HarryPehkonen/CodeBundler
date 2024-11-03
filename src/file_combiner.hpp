@@ -10,10 +10,11 @@
 
 class FileCombiner {
 public:
-    explicit FileCombiner(const FileProcessor& processor);
+    explicit FileCombiner(const FileProcessor& processor, bool verbose = false);
     void combineFiles(const std::vector<std::filesystem::path>& directories, const std::string& output_filename) const;
     void combineFiles(const std::vector<std::filesystem::path>& directories, std::ostream& output) const;
 
 private:
     const FileProcessor& processor_;
+    const bool verbose_;
 };

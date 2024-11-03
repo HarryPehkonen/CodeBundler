@@ -6,8 +6,13 @@
 #include <filesystem>
 
 const std::string BOUNDARY_STRING = "------ BOUNDARY_STRING_XYZZY ------";
+const std::filesystem::path TOP_DIR = "./";
 const std::filesystem::path SRC_DIR = "./src/";
 const std::filesystem::path TESTS_DIR = "./tests/";
+const std::filesystem::path CMAKE_DIR = "./cmake/";
+const std::filesystem::path EXAMPLES_DIR = "./examples/";
+const std::filesystem::path INCLUDE_DIR = "./include/";
+const std::filesystem::path GITHUB_DIR = "./.github/";
 const std::string EXAMPLE = R"(
 We're using a custom file format for bundling multiple source files. Here's an example of the format:
 ------ BOUNDARY_STRING_XYZZY ------
