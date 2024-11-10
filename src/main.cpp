@@ -60,6 +60,7 @@ int main(int argc, char* argv[]) {
             processor.addMatcher(std::make_unique<ExtensionMatcher>(".h"));
             processor.addMatcher(std::make_unique<ExactNameMatcher>("CMakeLists.txt"));
             processor.addMatcher(std::make_unique<ExtensionMatcher>(".cmake"));
+            processor.addMatcher(std::make_unique<ExtensionMatcher>(".cmake.in"));
             processor.addMatcher(std::make_unique<ExactNameMatcher>("ci.yml"));
             processor.addMatcher(std::make_unique<ExactNameMatcher>("README.md"));
             processor.addMatcher(std::make_unique<ExactNameMatcher>("LICENSE"));

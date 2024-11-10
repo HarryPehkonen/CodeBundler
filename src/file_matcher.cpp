@@ -5,7 +5,11 @@
 ExtensionMatcher::ExtensionMatcher(std::string extension) : extension_(std::move(extension)) {}
 
 bool ExtensionMatcher::matches(const std::filesystem::path& path) const {
-    return path.extension() == extension_;
+    std::string filename = path.filename().string();
+    if (filename.length() < extension_.length()) {
+        return false;
+    }
+    return filename.substr(filename.length() - extension_.length()) == extension_;
 }
 
 ExactNameMatcher::ExactNameMatcher(std::string name) : name_(std::move(name)) {}
