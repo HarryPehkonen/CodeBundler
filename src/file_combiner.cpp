@@ -28,7 +28,7 @@ void FileCombiner::combineFiles(const std::vector<std::filesystem::path>& direct
         verbose_ && std::cerr << "Processing directory: " << directory << std::endl;
 
         for (const auto& file_path : processor_.getMatchingFiles(directory)) {
-            verbose_ && std::cerr << "Matching file:  " << file_path.relative_path().string() << std::endl;
+            verbose_ && std::cerr << "Processing file:  " << file_path.relative_path().string() << std::endl;
             output << BOUNDARY_STRING << '\n';
             output << "Path: " << file_path.relative_path().string() << '\n' << '\n';
             
@@ -37,8 +37,12 @@ void FileCombiner::combineFiles(const std::vector<std::filesystem::path>& direct
                 throw std::runtime_error("Unable to open input file: " + file_path.string());
             }
             
-            output << input_file.rdbuf();
+            // read the text from the file
+            std::string txt((std::istreambuf_iterator<char>(input_file)), std::istreambuf_iterator<char>());
+            output << txt;
             output << '\n';
+
+            verbose_ && std::cerr << "Processed file: " << file_path.relative_path().string() << " at " << txt.length() << std::endl;
         }
     }
 

@@ -71,7 +71,7 @@ int main(int argc, char* argv[]) {
                 }
             }
 
-            FileCombiner combiner(processor);
+            FileCombiner combiner(processor, verbose);
             if (filename.empty()) {
                 combiner.combineFiles(directories, std::cout);
                 std::cerr << "Files combined successfully to stdout" << std::endl;
