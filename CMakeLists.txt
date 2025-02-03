@@ -1,57 +1,40 @@
-cmake_minimum_required(VERSION 3.10)
-project(CodeBundler VERSION 1.0)
+## Root CMakeLists.txt
+cmake_minimum_required(VERSION 3.14)
+project(codebundler VERSION 1.0.0 LANGUAGES CXX)
 
-set(CMAKE_CXX_STANDARD 20)
+# Set C++ standard
+set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
 
 # Add compiler warnings
-if(MSVC)
-  add_compile_options(/W4 /WX)
-else()
-  add_compile_options(-Wall -Wextra -Wpedantic -Werror)
+if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    add_compile_options(-Wall -Wextra -Wpedantic)
+elseif(MSVC)
+    add_compile_options(/W4)
 endif()
 
-# Source files (excluding main.cpp)
-set(LIB_SOURCES
-    src/file_matcher.cpp
-    src/file_processor.cpp
-    src/file_combiner.cpp
-    src/file_extractor.cpp
-    src/utils.cpp
-)
-
-# Header files
-set(HEADERS
-    src/file_matcher.hpp
-    src/file_processor.hpp
-    src/file_combiner.hpp
-    src/file_extractor.hpp
-    src/utils.hpp
-    src/constants.hpp
-    src/types.hpp
-)
-
-# Create a static library with the common code
-add_library(code_bundler_lib STATIC ${LIB_SOURCES} ${HEADERS})
-
-# Main executable
-add_executable(code_bundler src/main.cpp)
-target_link_libraries(code_bundler PRIVATE code_bundler_lib)
-
-# Testing
+# Enable testing
 enable_testing()
-find_package(GTest REQUIRED)
-include(GoogleTest)
 
-# Test executable
-set(TEST_SOURCES
-    tests/file_matcher_test.cpp
-    tests/file_processor_test.cpp
-    tests/file_combiner_test.cpp
-    tests/file_extractor_test.cpp
-    tests/utils_test.cpp
+# Find GTest package
+include(FetchContent)
+FetchContent_Declare(
+    googletest
+    GIT_REPOSITORY https://github.com/google/googletest.git
+    GIT_TAG release-1.12.1
+)
+FetchContent_MakeAvailable(googletest)
+
+# Create library target
+add_library(codebundler_lib INTERFACE)
+target_include_directories(codebundler_lib INTERFACE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
 
-add_executable(run_tests ${TEST_SOURCES})
-target_link_libraries(run_tests PRIVATE code_bundler_lib GTest::GTest GTest::Main)
-gtest_discover_tests(run_tests)
+# Create executable target
+add_executable(codebundler src/main.cpp)
+target_link_libraries(codebundler PRIVATE codebundler_lib)
+
+# Add tests directory
+add_subdirectory(tests)
