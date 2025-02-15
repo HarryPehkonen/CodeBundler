@@ -1,279 +1,309 @@
+// include/codebundler/codebundler.hpp
 #pragma once
 
-#include <string>
+#include "handles.hpp"
+#include "errors.hpp"
+#include "options.hpp"
 #include <vector>
+#include <string>
 #include <filesystem>
-#include <fstream>
-#include <stdexcept>
-#include <cstdio>
 #include <memory>
+#include <sstream>
 #include <iostream>
+#include <optional>
+#include <algorithm>
+#include <fstream>
+#include <functional>
+#include <iterator>
+
+#include <cassert>
 
 namespace codebundler {
 
-// Custom exception with context
-class BundleError : public std::runtime_error {
-    using std::runtime_error::runtime_error;
-};
+void print_directory_tree(const std::filesystem::path&, std::string);
 
-// RAII wrapper for process handles
-class ProcessHandle {
-    FILE* pipe_;
-public:
-    explicit ProcessHandle(const char* cmd) : pipe_(popen(cmd, "r")) {
-        if (!pipe_) throw BundleError("Process creation failed: " + std::string(cmd));
-    }
-    ~ProcessHandle() { if (pipe_) pclose(pipe_); }
-    
-    FILE* get() const { return pipe_; }
-    
-    ProcessHandle(const ProcessHandle&) = delete;
-    ProcessHandle& operator=(const ProcessHandle&) = delete;
-};
-
-// Validated separator
-class Separator {
-    std::string value_;
-
-public:
-    explicit Separator(std::string s) {
-        if (s.empty()) {
-            throw BundleError("Separator cannot be empty");
+void print_directory_tree(const std::filesystem::path& path, std::string indent = "") {
+    try {
+        if (!std::filesystem::exists(path)) {
+            std::cout << "Path does not exist: " << path << std::endl;
+            return;
         }
-        if (s.find('\n') != std::string::npos) {
-            throw BundleError("Separator cannot contain newlines");
-        }
-        value_ = std::move(s);
-    }
 
-    const std::string& get() const { return value_; }
-    
-    bool matches(const std::string& line) const {
-        return line == value_;
+        std::cout << indent << path.filename().string() << std::endl;
+        
+        if (std::filesystem::is_directory(path)) {
+            indent += "    ";
+            std::vector<std::filesystem::path> sorted_paths;
+            
+            // Collect and sort directory entries
+            for (const auto& entry : std::filesystem::directory_iterator(path)) {
+                sorted_paths.push_back(entry.path());
+            }
+            std::sort(sorted_paths.begin(), sorted_paths.end());
+            
+            // Recursively print each entry
+            for (const auto& entry : sorted_paths) {
+                print_directory_tree(entry, indent);
+            }
+        }
+    } catch (const std::filesystem::filesystem_error& e) {
+        std::cerr << "Error accessing path: " << e.what() << std::endl;
     }
-};
+}
 
 class CodeBundler {
-public:
-    static constexpr const char* DEFAULT_SEPARATOR = "---------- BOUNDARY ----------";
-    static constexpr const char* DEFAULT_DESCRIPTION = 
-        "Description: This is a concatenation of several files. "
-        "All files are separated by the boundary string you see above, "
-        "followed by the name of the file.\n";
+private:
+    class BundleSession {
+        std::vector<std::unique_ptr<FileHandle>> open_files_;
 
-    // Stream-based bundle operation
-    static void bundle(std::ostream& output,
-                      const std::vector<std::string>& files,
-                      const std::string& separator_str = DEFAULT_SEPARATOR,
-                      const std::string& description = DEFAULT_DESCRIPTION) {
-        // Validate separator
-        Separator separator(separator_str);
+    public:
+        void addFile(const std::filesystem::path& path) {
+            auto file = std::make_unique<FileHandle>(path);
+            open_files_.push_back(std::move(file));
+        }
 
-        // Write initial separator and description
-        output << separator.get() << '\n';
-        output << description;
+        const std::vector<std::unique_ptr<FileHandle>>& files() const {
+            return open_files_;
+        }
+    };
 
-        // Process each file
-        for (const auto& file : files) {
-            output << separator.get() << '\n';
-            output << "Filename: " << file << '\n';
-            
-            // Open and stream file content
-            std::ifstream input(file);
-            if (!input) {
-                throw BundleError("Failed to open file: " + file);
-            }
-            input.seekg(0, std::ios::end);
-            if (input.tellg() == 0) {
-                throw BundleError("Empty file: " + file);
-            }
-            input.seekg(0, std::ios::beg);
-            output << input.rdbuf();
+    static void writeBundle(std::ostream& output,
+                          const BundleSession& session,
+                          const Options& options) {
+        output << options.separator() << '\n'
+               << options.description();
 
-            if (input.fail()) {
-                throw BundleError("Input failed: " + file);
-            }
-            if (output.fail()) {
-                throw BundleError("Output failed: " + file);
+        for (const auto& file : session.files()) {
+            output << options.separator() << '\n'
+                   << "Filename: " << file->path().string() << '\n';
+
+            // Stream the entire file
+            output << file->get().rdbuf();
+
+            if (!output) {
+                throw BundleError("Failed to write file: " + file->path().string());
             }
         }
 
-        // Write final separator
-        output << separator.get() << '\n';
-        
+        output << options.separator() << '\n';
+
         if (!output) {
             throw BundleError("Failed to complete bundle operation");
         }
     }
 
-    // File-based bundle operation (convenience wrapper)
-    static void bundle(const std::filesystem::path& output_path,
-                      const std::vector<std::string>& files,
-                      const std::string& separator_str = DEFAULT_SEPARATOR,
-                      const std::string& description = DEFAULT_DESCRIPTION) {
-        std::ofstream output(output_path);
+public:
+    static void bundle(std::ostream& output,
+                      const std::vector<std::string>& filenames,
+                      const Options& options = {}) {
         if (!output) {
-            throw BundleError("Failed to open output file: " + output_path.string());
+            throw BundleError("Invalid output stream");
         }
-        bundle(output, files, separator_str, description);
+
+        BundleSession session;
+        for (const auto& filename : filenames) {
+            session.addFile(filename);
+        }
+
+        writeBundle(output, session, options);
     }
 
-    // Stream-based unbundle operation
     static void unbundle(std::istream& input,
-                        const std::filesystem::path& output_dir = "") {
-        std::string line;
-        
-        // Read and validate first separator
-        if (!std::getline(input, line)) {
-            throw BundleError("Failed to read initial separator");
+                 const std::filesystem::path& output_dir) {
+        if (!input) {
+            throw BundleError("Invalid input stream");
         }
-        Separator separator(line);
+
+        // Create base output directory if it doesn't exist
+        std::filesystem::create_directories(output_dir);
+        if (!std::filesystem::is_directory(output_dir)) {
+            throw BundleError("Unable to create output directory");
+        }
+
+        std::string line;
+        std::unique_ptr<Options> options; // Validates the separator
+        std::optional<std::string> filename = std::nullopt;
+        std::ofstream output; // Output file stream
 
         // Skip description until next separator
-        while (std::getline(input, line) && !separator.matches(line)) {}
+        bool gonePastDescription = false;
 
-        // Process each file
-        std::string current_file;
-        std::stringstream content;
-        
+        // schema:
+        //   separator
+        //   description*
+        //   separator
+        //   filename
+        //   content*   > *
+        //   separator
+        //
+        // the description continues until the second separator.
+        // the content continues until the next separator, and may be
+        // empty.
+        // the filename-content-separator sequence may repeat at least
+        // zero times.
         while (std::getline(input, line)) {
-            if (separator.matches(line)) {
-                // Write previous file if exists
-                if (!current_file.empty()) {
-                    try {
-                        std::filesystem::path filepath = output_dir / current_file;
-                        std::filesystem::create_directories(filepath.parent_path());
-                        
-                        std::ofstream output(filepath);
-                        if (!output) {
-                            throw BundleError("Failed to create file: " + filepath.string());
-                        }
-                        output << content.str();
-                        if (!output) {
-                            throw BundleError("Failed to write to file: " + filepath.string());
-                        }
-                    } catch (const std::filesystem::filesystem_error& e) {
-                        throw BundleError("Filesystem error: " + std::string(e.what()));
-                    }
-                }
-                
-                // Start new file
-                if (!std::getline(input, line)) {
-                    break;
-                }
-                
-                if (line.substr(0, 10) != "Filename: ") {
-                    throw BundleError("Expected filename, got: " + line);
-                }
-                
-                current_file = line.substr(10);
-                content.str("");
-                content.clear();
+
+            if (!line.empty() && line.back() == '\r') {
+                line.pop_back();
+            }
+
+            // the first line must be the separator.  have we
+            // initialized options with the separator yet?
+            if (!options) {
+                std::string separator = line;
+                options = std::make_unique<Options>(separator);
                 continue;
             }
-            
-            if (!current_file.empty()) {
-                content << line << '\n';
+
+            // a separator ends each section
+            if (line == options->separator()) {
+
+                // if we already went past the description, we must be
+                // at the end of a file.  not *the* file, but *a* file.
+                if (gonePastDescription) {
+
+                    // reset everything because we are starting a new
+                    // file
+                    if (output) {
+                        output.close();
+                    }
+                    filename = std::nullopt;
+                    continue;
+                }
+
+                // we must have gone past the description now
+                gonePastDescription = true;
+                continue;
             }
-        }
-        
-        // Write final file if exists
-        if (!current_file.empty()) {
-            std::filesystem::path filepath = output_dir / current_file;
-            std::filesystem::create_directories(filepath.parent_path());
-            std::ofstream output(filepath);
-            if (!output) {
-                throw BundleError("Failed to create final file: " + filepath.string());
+
+            // skip until we get to that separator
+            if (!gonePastDescription) {
+                continue;
             }
-            output << content.str();
+
+            // are we getting the filename?
+            if (!filename) {
+                if (line.substr(0, 10) != "Filename: ") {
+                    throw BundleError("Expected filename, got: '" + line + "'");
+                }
+
+                filename = line.substr(10);
+                std::filesystem::path output_file = output_dir / *filename;
+                if (!std::filesystem::create_directories(output_file.parent_path())) {
+                    // don't worry about it.  if the directory already
+                    // exists, create_directories will return false.
+                }
+                output.open(output_file);
+                if (!output) {
+                    throw BundleError("Failed to open output file: " + output_file.string());
+                }
+                continue;
+            }
+
+            // must be contents of the current file
+            output << line << '\n';
         }
     }
 
     static bool verify(std::istream& bundle) {
-        std::string separator;
-        bool inDescription = false;
-        std::string currentFile;
-        std::stringstream content;
-        
-        std::string line;
-        while (std::getline(bundle, line)) {
-            if (separator.empty()) {
-                separator = line;
-                inDescription = true;
-                continue;
-            }
-            
-            if (line == separator) {
-                if (inDescription) {
-                    inDescription = false;
-                } else if (!currentFile.empty()) {
-                    // Verify current file before moving to next
-                    std::ifstream orig(currentFile, std::ios::binary);
-                    if (!orig) {
-                        return false;
-                    }
-                    
-                    std::string bundle_content = content.str();
-                    std::string orig_content((std::istreambuf_iterator<char>(orig)),
-                                          std::istreambuf_iterator<char>());
-                    
-                    if (bundle_content != orig_content) {
-                        return false;
-                    }
-                    
-                    currentFile.clear();
-                    content.str("");
-                    content.clear();
-                }
-                continue;
-            }
-            
-            // Handle non-separator lines
-            if (inDescription) {
-                continue;  // Skip description content
-            } else if (currentFile.empty()) {
-                if (line.substr(0, 10) != "Filename: ") {
-                    throw BundleError("Invalid filename line: " + line);
-                }
-                currentFile = line.substr(10);
-            } else {
-                content << line << '\n';
-            }
+        std::stringstream bundle_copy;
+
+        // Check for errors before clearing the stream
+        if (bundle.fail() || bundle.bad()) {
+            throw BundleError("Bundle input stream with ERROR given to verify.");
         }
-        
-        // Handle final file if exists
-        if (!currentFile.empty()) {
-            std::ifstream orig(currentFile, std::ios::binary);
-            if (!orig) {
-                return false;
-            }
-            std::string bundle_content = content.str();
-            std::string orig_content((std::istreambuf_iterator<char>(orig)),
-                                   std::istreambuf_iterator<char>());
-            return bundle_content == orig_content;
+        bundle.seekg(0); // Reset original bundle position
+        bundle_copy << bundle.rdbuf(); // Make a copy of the bundle
+
+        if (bundle_copy.fail() || bundle_copy.bad()) {
+            throw BundleError("Bundle copy stream with ERROR created in verify.");
         }
-        
-        return true;
+        bundle_copy.seekg(0); // Reset copy position
+
+        // Create temporary directory for verification
+        auto temp_unbundling_dir = std::filesystem::temp_directory_path() / 
+                       "codebundler_verify_XXXXXX";
+        assert(!std::filesystem::exists(temp_unbundling_dir));
+        bool verified = true;
+
+        try {
+            std::filesystem::create_directories(temp_unbundling_dir);
+            assert(std::filesystem::exists(temp_unbundling_dir));
+            assert(std::filesystem::is_directory(temp_unbundling_dir));
+
+            // Use RAII to clean up temp directory
+            struct TempDirCleaner {
+                std::filesystem::path path;
+                ~TempDirCleaner() { std::filesystem::remove_all(path); }
+            } cleaner{temp_unbundling_dir};
+
+            // Unbundle to temp directory
+            unbundle(bundle_copy, temp_unbundling_dir);
+
+            int line_count = 0;
+            bundle_copy.clear();
+            bundle_copy.seekg(0);
+            std::string line;
+            while (std::getline(bundle_copy, line)) {
+                ++line_count;
+                if (line.substr(0, 10) == "Filename: ") {
+                    std::string filename = line.substr(10);
+                    auto temp_file = temp_unbundling_dir / filename;
+
+                    if (!std::filesystem::exists(temp_file)) {
+
+                        // the file is actually missing in the unbundled
+                        // directory
+                        std::cerr << "File not found: " << temp_file << std::endl;
+                        verified = false;
+                        break;
+                    } 
+                    if (!compareFiles(filename, temp_file)) {
+
+                        // the files are just different
+                        verified = false;
+                        break;
+                    }
+                }
+            }
+
+        }
+        catch (const std::exception&) {
+            std::cerr << "Exception caught during verification" << std::endl;
+            verified = false;
+            assert(!std::filesystem::exists(temp_unbundling_dir));
+            return verified;
+        }
+
+        // temp directory should have been cleaned up by now
+        assert(!std::filesystem::exists(temp_unbundling_dir));
+
+        return verified;
     }
 
-    // File-based unbundle operation (convenience wrapper)
-    static void unbundle(const std::filesystem::path& input_path,
-                        const std::filesystem::path& output_dir = "") {
-        std::ifstream input(input_path);
-        if (!input) {
-            throw BundleError("Failed to open input file: " + input_path.string());
+private:
+    static bool compareFiles(const std::filesystem::path& original,
+                             const std::filesystem::path& copy) {
+
+        // Check file sizes first
+        if (std::filesystem::file_size(original) != std::filesystem::file_size(copy)) {
+            return false;
         }
-        unbundle(input, output_dir);
+
+        std::ifstream f1(original, std::ios::binary);
+        std::ifstream f2(copy, std::ios::binary);
+
+        if (!f1 || !f2) return false;
+
+        bool result = std::equal(
+            std::istreambuf_iterator<char>(f1),
+            std::istreambuf_iterator<char>(),
+            std::istreambuf_iterator<char>(f2)
+        );
+
+        return result;
     }
 
-    // File-based verify operation (convenience wrapper)
-    static bool verify(const std::filesystem::path& bundle_path) {
-        std::ifstream bundle(bundle_path);
-        if (!bundle) {
-            throw BundleError("Failed to open bundle file: " + bundle_path.string());
-        }
-        return verify(bundle);
-    }
 };
 
 } // namespace codebundler

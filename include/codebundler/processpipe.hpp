@@ -19,7 +19,7 @@ class ProcessPipe {
 private:
     FILE* pipe_;
     std::string command_;
-    
+
     ProcessPipe(const ProcessPipe&) = delete;
     ProcessPipe& operator=(const ProcessPipe&) = delete;
 
@@ -38,53 +38,28 @@ public:
         }
     }
 
-    std::vector<std::string> readLines() {
-        std::vector<std::string> lines;
-        char buffer[4096];
-        std::string current_line;
+std::vector<std::string> readLines() {
+    std::vector<std::string> lines;
+    char buffer[4096];
 
-        while (fgets(buffer, sizeof(buffer), pipe_) != nullptr) {
-            current_line += buffer;
-            size_t pos = 0;
-            size_t next;
-            
-            while ((next = current_line.find('\n', pos)) != std::string::npos) {
-                lines.push_back(current_line.substr(pos, next - pos));
-                pos = next + 1;
-            }
-            
-            current_line = current_line.substr(pos);
+    bool has_output = false;
+    while (fgets(buffer, sizeof(buffer), pipe_)) {
+        has_output = true;
+        lines.emplace_back(buffer);
+        if (!lines.back().empty() && lines.back().back() == '\n') {
+            lines.back().pop_back();
         }
-
-        if (!current_line.empty()) {
-            lines.push_back(std::move(current_line));
-        }
-
-        int status = pclose(pipe_);
-        pipe_ = nullptr;  // Prevent double-close in destructor
-
-        #ifdef _WIN32
-        if (status != 0) {
-            throw std::runtime_error("Process failed with status " + 
-                std::to_string(status) + ": " + command_);
-        }
-        #else
-        if (status == -1) {
-            throw std::runtime_error("Failed to get exit status for: " + command_);
-        }
-        if (WIFEXITED(status)) {
-            int exit_status = WEXITSTATUS(status);
-            if (exit_status != 0) {
-                throw std::runtime_error("Process failed with status " + 
-                    std::to_string(exit_status) + ": " + command_);
-            }
-        } else {
-            throw std::runtime_error("Process terminated abnormally: " + command_);
-        }
-        #endif
-
-        return lines;
     }
+
+    int status = pclose(pipe_);
+    pipe_ = nullptr;
+
+    if (status != 0 || !has_output) {
+        throw BundleError("Process failed: " + command_);
+    }
+
+    return lines;
+}
 };
 
 } // namespace codebundler
