@@ -1,85 +1,69 @@
-# Root CMakeLists.txt
 cmake_minimum_required(VERSION 3.14)
-project(codebundler VERSION 1.0.0 LANGUAGES CXX)
+project(CodeBundler LANGUAGES CXX)
 
-# Set C++ standard and ensure it's required
+# --- Standard C++ Settings ---
 set(CMAKE_CXX_STANDARD 17)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_STANDARD_REQUIRED True)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-# Add compiler warnings
-if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
-    add_compile_options(
-        -Wall 
-        -Wextra 
-        -Wpedantic 
-        -Werror 
-        -Wconversion
-        -Wsign-conversion
-        -Wcast-qual
-        -Wformat=2
-        -Wundef
-        -Werror=float-equal
-        -Werror=missing-declarations
-    )
-elseif(MSVC)
-    add_compile_options(
-        /W4
-        /WX
-        /permissive-
-        /w14640
-        /w14928
-    )
-endif()
+# --- Options ---
+option(CODEBUNDLER_ENABLE_FORMATTING "Format code with clang-format target" ON)
+option(CODEBUNDLER_ENABLE_TESTING "Build unit tests" ON)
+option(CODEBUNDLER_INSTALL "Enable installation" ON)
 
-# Enable testing
-enable_testing()
+# --- Include subdirectories ---
+add_subdirectory(external) # Process dependencies first
+add_subdirectory(src)
 
-# First try to find system-installed GTest
-find_package(GTest QUIET)
-
-# If not found, fetch it
-if(NOT GTest_FOUND)
-    message(STATUS "System-wide Google Test not found. Fetching from repository...")
-    include(FetchContent)
-    FetchContent_Declare(
-        googletest
-        GIT_REPOSITORY https://github.com/google/googletest.git
-        GIT_TAG v1.13.0
-        SYSTEM
-    )
-    FetchContent_MakeAvailable(googletest)
+# --- Testing Setup (Requires GoogleTest) ---
+if(CODEBUNDLER_ENABLE_TESTING)
+    if(TARGET GTest::gtest AND TARGET GTest::gmock)
+        enable_testing()
+        add_subdirectory(tests)
+        message(STATUS "Testing enabled.")
+    else()
+        message(WARNING "GoogleTest target not found. Disabling tests. Make sure external/CMakeLists.txt ran correctly.")
+        set(CODEBUNDLER_ENABLE_TESTING OFF) # Ensure test subdirectory isn't processed if GTest failed
+    endif()
 else()
-    message(STATUS "Using system-wide Google Test")
+     message(STATUS "Testing disabled by option.")
 endif()
 
-# Rest of the file remains the same...
-add_library(codebundler_lib INTERFACE)
-target_include_directories(codebundler_lib INTERFACE
-    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-    $<INSTALL_INTERFACE:include>
-)
+# --- Formatting Target (Optional) ---
+if(CODEBUNDLER_ENABLE_FORMATTING)
+    find_program(CLANG_FORMAT_EXE NAMES clang-format)
+    if(CLANG_FORMAT_EXE)
+        file(GLOB_RECURSE ALL_CXX_SOURCES
+             "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp"
+             "${CMAKE_CURRENT_SOURCE_DIR}/include/*.hpp"
+             "${CMAKE_CURRENT_SOURCE_DIR}/tests/*.cpp" # Only if testing is enabled
+             "${CMAKE_CURRENT_SOURCE_DIR}/tests/*.hpp" # Only if testing is enabled
+        )
+        if(ALL_CXX_SOURCES)
+             add_custom_target(format COMMAND ${CLANG_FORMAT_EXE} -i ${ALL_CXX_SOURCES}
+                               COMMENT "Formatting code with clang-format")
+             message(STATUS "Added 'format' target using ${CLANG_FORMAT_EXE}")
+        else()
+             message(WARNING "No source files found for formatting.")
+        endif()
 
-add_executable(codebundler src/main.cpp)
-target_link_libraries(codebundler PRIVATE codebundler_lib)
+    else()
+        message(WARNING "clang-format executable not found. 'format' target disabled.")
+    endif()
+endif()
 
-add_subdirectory(tests)
+# --- Installation ---
+if(CODEBUNDLER_INSTALL)
+    include(GNUInstallDirs)
+    install(TARGETS codebundler
+            RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+    )
+    message(STATUS "Installation enabled to prefix: ${CMAKE_INSTALL_PREFIX}")
+else()
+    message(STATUS "Installation disabled.")
+endif()
 
-# Installation rules
-include(GNUInstallDirs)
-install(TARGETS codebundler codebundler_lib
-    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
-    LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
-    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
-)
-install(DIRECTORY include/codebundler
-    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
-)
-
-# Generate and install CMake config files
-include(CMakePackageConfigHelpers)
-write_basic_package_version_file(
-    "${PROJECT_BINARY_DIR}/CodeBundlerConfigVersion.cmake"
-    VERSION ${PROJECT_VERSION}
-    COMPATIBILITY SameMajorVersion
-)
+message(STATUS "CodeBundler project configuration complete.")
+message(STATUS "  Build tests: ${CODEBUNDLER_ENABLE_TESTING}")
+message(STATUS "  Enable formatting target: ${CODEBUNDLER_ENABLE_FORMATTING}")
+message(STATUS "  Enable install target: ${CODEBUNDLER_INSTALL}")
