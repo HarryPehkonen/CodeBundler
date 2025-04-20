@@ -16,7 +16,7 @@ public:
      * @brief Constructs a Bundler object.
      * @param separator The boundary marker to use between files in the bundle.
      */
-    explicit Bundler(std::string separator = "--- // ---");
+    explicit Bundler(std::string separator = "========= BOUNDARY ==========");
 
     /**
      * @brief Bundles files tracked by `git ls-files` into the provided output stream.

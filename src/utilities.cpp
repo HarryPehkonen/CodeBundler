@@ -13,30 +13,72 @@ namespace codebundler {
 namespace utilities {
 
     /**
-     * @brief Reads the entire content of a file into a string.
-     * Uses RAII for file handling.
+     * @brief Reads a file line by line into a vector of strings.
+     * Newline characters are removed from the end of each line.
+     * Uses RAII for file handling. Opens in text mode.
      * @param filepath The path to the file.
-     * @return The content of the file as a string.
-     * @throws FileIOException If the file cannot be opened or read.
+     * @return A vector where each element is a line from the file.
+     * @throws FileIOException If the file cannot be opened or a read error occurs.
      */
-    std::string readFileContent(const std::filesystem::path& filepath)
-    {
-        // Open file in binary mode to handle all types of content correctly
-        std::ifstream fileStream(filepath, std::ios::in | std::ios::binary);
+    std::vector<std::string> readFileLines(const std::filesystem::path& filepath) {
+        // Open in text mode (default for ifstream)
+        std::ifstream fileStream(filepath);
         if (!fileStream) {
-            throw FileIOException("Failed to open file for reading", filepath.string());
+            throw FileIOException("Failed to open file for reading lines", filepath.string());
         }
 
-        // Read the entire file content
-        std::ostringstream contentStream;
-        contentStream << fileStream.rdbuf();
+        std::vector<std::string> lines;
+        std::string currentLine;
 
-        if (!fileStream.eof() && fileStream.fail()) {
-            // Check for read errors other than reaching EOF
-            throw FileIOException("Failed to read file content", filepath.string());
+        // Read lines one by one
+        while (std::getline(fileStream, currentLine)) {
+            // std::getline already removes the newline character(s)
+            lines.push_back(currentLine);
         }
 
-        return contentStream.str();
+        // Check for errors *after* the loop (excluding EOF)
+        // getline sets failbit on EOF *if* nothing was read, but eofbit is the primary indicator.
+        // badbit indicates a more serious I/O error.
+        if (fileStream.bad()) {
+             throw FileIOException("Failed during reading lines from file", filepath.string());
+        }
+        // No need to check failbit specifically unless you need to distinguish
+        // between reaching EOF successfully vs. a format error (unlikely here).
+        // The loop condition already handles normal EOF.
+
+        return lines;
+    }
+
+    std::string readFileContent(const std::filesystem::path& filepath) {
+        std::vector<std::string> lines = readFileLines(filepath);
+        return linesToString(lines);
+    }
+    /**
+     * @brief Checks if a file contains a specific delimiter.
+     * @param lines The lines of the file as a vector of strings.
+     * @param delimiter The delimiter to check for.
+     * @return true if the file contains the delimiter, false otherwise.
+     */
+    bool fileContainsDelimiter(const std::vector<std::string>& lines, const std::string& delimiter) {
+        for (const auto& line : lines) {
+            if (line == delimiter) {
+                return true; // Delimiter found
+            }
+        }
+        return false; // Delimiter not found
+    }
+
+    /**
+     * @brief Converts a vector of strings to a single string, joining them with newlines.
+     * @param lines The vector of strings to convert.
+     * @return The joined string.
+     */
+    std::string linesToString(const std::vector<std::string>& lines) {
+        std::ostringstream oss;
+        for (const auto& line : lines) {
+            oss << line << '\n'; // Append newline after each line
+        }
+        return oss.str();
     }
 
     /**

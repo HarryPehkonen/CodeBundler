@@ -18,6 +18,7 @@ add_executable(codebundler_tests
     # Include implementations needed for tests, or link the main library if built as one
     ../src/bundler.cpp
     ../src/unbundler.cpp
+    ../src/bundleparser.cpp
     ../src/utilities.cpp
 )
 

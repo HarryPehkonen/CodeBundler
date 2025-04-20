@@ -88,7 +88,11 @@ void Bundler::writeFileEntry(std::ostream& outputStream, const std::string& file
 {
     // Use filesystem::path for potentially better path handling, but keep string for git output
     std::filesystem::path fsPath(filePath);
-    std::string fileContent = utilities::readFileContent(fsPath);
+    std::vector<std::string> fileLines = utilities::readFileLines(fsPath);
+    if (utilities::fileContainsDelimiter(fileLines, m_separator)) {
+        throw CodeBundlerException("File contains the bundle separator, which is not allowed.");
+    }
+    std::string fileContent = utilities::linesToString(fileLines);
     std::string checksum = utilities::calculateSHA256(fileContent);
 
     // Normalize path separators for consistency in the bundle? Optional.
@@ -96,8 +100,6 @@ void Bundler::writeFileEntry(std::ostream& outputStream, const std::string& file
 
     outputStream << "Filename: " << filePath << "\n"; // Keep original path from git
     outputStream << "Checksum: SHA256:" << checksum << "\n";
-    // Add a blank line before content for readability? Optional.
-    // outputStream << "\n";
     outputStream << fileContent; // Write content directly
     // Ensure a newline separates content from the next separator if content doesn't end with one
     if (!fileContent.empty() && fileContent.back() != '\n') {

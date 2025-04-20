@@ -14,7 +14,25 @@ namespace utilities {
      * @return The content of the file as a string.
      * @throws FileIOException If the file cannot be opened or read.
      */
+    std::vector<std::string> readFileLines(const std::filesystem::path& filepath);
+
     std::string readFileContent(const std::filesystem::path& filepath);
+
+    /**
+     * @brief Checks if a file contains a specific delimiter.
+     * @param lines The lines of the file as a vector of strings.
+     * @param delimiter The delimiter to check for.
+     * @return true if the file contains the delimiter, false otherwise.
+     */
+    bool fileContainsDelimiter(const std::vector<std::string>& lines, const std::string& delimiter);
+
+    /**
+     * @brief Converts a vector of strings to a single string, joining
+     * them with newlines.
+     * @param lines The vector of strings to convert.
+     * @return The joined string.
+     */
+    std::string linesToString(const std::vector<std::string>& lines);
 
     /**
      * @brief Writes content to a file, creating directories if necessary.

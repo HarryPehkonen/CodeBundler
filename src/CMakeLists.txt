@@ -3,6 +3,7 @@ add_executable(codebundler
     main.cpp
     bundler.cpp
     unbundler.cpp
+    bundleparser.cpp
     utilities.cpp
 )
 

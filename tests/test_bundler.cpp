@@ -96,7 +96,7 @@ TEST_F(BundlerGitTest, BundleToStreamBasic)
     std::string bundleContent = output.str();
 
     // Basic checks - expecting separator, filename headers, content
-    EXPECT_NE(bundleContent.find("--- // ---"), std::string::npos);
+    EXPECT_NE(bundleContent.find("========= BOUNDARY =========="), std::string::npos);
     EXPECT_NE(bundleContent.find("Filename: file1.txt"), std::string::npos);
     EXPECT_NE(bundleContent.find("Checksum: SHA256:"), std::string::npos);
     EXPECT_NE(bundleContent.find("Content of file 1."), std::string::npos);
