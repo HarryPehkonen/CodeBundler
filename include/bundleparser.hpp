@@ -3,11 +3,11 @@
 
 #include "options.hpp"
 
-#include <functional>
-#include <vector>
-#include <string>
-#include <optional>
 #include <filesystem>
+#include <functional>
+#include <optional>
+#include <string>
+#include <vector>
 
 // Forward declaration (though not strictly necessary inside its own header, good practice if other headers might include this selectively)
 class BundleParser;
@@ -40,7 +40,6 @@ struct Transition {
     ParserState nextState;
 };
 
-
 class BundleParser {
 public:
     // Public type alias for Hasher
@@ -50,7 +49,8 @@ public:
     BundleParser(const codebundler::Options& options, Hasher hasher, std::filesystem::path outputPath = ".");
 
     // --- Public Methods ---
-    bool haveContent() const {
+    bool haveContent() const
+    {
         return !lines_.empty();
     }
     bool parse(const InputType& input);

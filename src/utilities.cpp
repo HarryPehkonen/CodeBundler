@@ -20,7 +20,8 @@ namespace utilities {
      * @return A vector where each element is a line from the file.
      * @throws FileIOException If the file cannot be opened or a read error occurs.
      */
-    std::vector<std::string> readFileLines(const std::filesystem::path& filepath) {
+    std::vector<std::string> readFileLines(const std::filesystem::path& filepath)
+    {
         // Open in text mode (default for ifstream)
         std::ifstream fileStream(filepath);
         if (!fileStream) {
@@ -40,7 +41,7 @@ namespace utilities {
         // getline sets failbit on EOF *if* nothing was read, but eofbit is the primary indicator.
         // badbit indicates a more serious I/O error.
         if (fileStream.bad()) {
-             throw FileIOException("Failed during reading lines from file", filepath.string());
+            throw FileIOException("Failed during reading lines from file", filepath.string());
         }
         // No need to check failbit specifically unless you need to distinguish
         // between reaching EOF successfully vs. a format error (unlikely here).
@@ -49,7 +50,8 @@ namespace utilities {
         return lines;
     }
 
-    std::string readFileContent(const std::filesystem::path& filepath) {
+    std::string readFileContent(const std::filesystem::path& filepath)
+    {
         std::vector<std::string> lines = readFileLines(filepath);
         return linesToString(lines);
     }
@@ -59,7 +61,8 @@ namespace utilities {
      * @param delimiter The delimiter to check for.
      * @return true if the file contains the delimiter, false otherwise.
      */
-    bool fileContainsDelimiter(const std::vector<std::string>& lines, const std::string& delimiter) {
+    bool fileContainsDelimiter(const std::vector<std::string>& lines, const std::string& delimiter)
+    {
         for (const auto& line : lines) {
             if (line == delimiter) {
                 return true; // Delimiter found
@@ -73,7 +76,8 @@ namespace utilities {
      * @param lines The vector of strings to convert.
      * @return The joined string.
      */
-    std::string linesToString(const std::vector<std::string>& lines) {
+    std::string linesToString(const std::vector<std::string>& lines)
+    {
         std::ostringstream oss;
         for (const auto& line : lines) {
             oss << line << '\n'; // Append newline after each line

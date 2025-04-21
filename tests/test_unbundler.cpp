@@ -1,5 +1,5 @@
-#include "options.hpp"
 #include "exceptions.hpp"
+#include "options.hpp"
 #include "unbundler.hpp"
 #include "utilities.hpp" // For reading created files, calculating checksums
 #include <filesystem> // Requires C++17
@@ -203,7 +203,6 @@ TEST_F(UnbundlerTest, MalformedBundleMissingFilename)
 {
     using namespace codebundler;
     Options options;
-    options.verbose = 1; // Enable warnings
     Unbundler unbundler(options);
     std::string sep = "---SEP---";
     std::stringstream bad_stream;
@@ -215,12 +214,10 @@ TEST_F(UnbundlerTest, MalformedBundleMissingFilename)
     EXPECT_THROW(unbundler.unbundleFromStream(bad_stream, test_output_dir), BundleFormatException);
 }
 
-
 TEST_F(UnbundlerTest, BundleEndsAbruptlyAfterFilename)
 {
     using namespace codebundler;
     Options options;
-    options.verbose = 1;
     options.verify = false;
     Unbundler unbundler(options);
     std::string sep = "---SEP---";
@@ -236,9 +233,7 @@ TEST_F(UnbundlerTest, BundleEndsAbruptlyAfterFilename)
     ASSERT_FALSE(std::filesystem::exists(file_path));
 }
 
-
 // Add more tests:
 // - Bundles with binary content (ensure no corruption) -> Covered by bundler test data, verify here too if needed
 // - Error handling for unwritable output directory/files (might need more setup)
 // - Bundle containing only header
-

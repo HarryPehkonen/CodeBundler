@@ -1,21 +1,19 @@
 #ifndef CODEBUNDLER_UNBUNDLER_HPP
 #define CODEBUNDLER_UNBUNDLER_HPP
 
+#include "options.hpp"
 #include <filesystem> // Requires C++17
 #include <iosfwd> // Forward declaration for std::istream
 #include <string>
 #include <vector>
-#include "options.hpp"
 
 namespace codebundler {
-
 
 /**
  * @brief Extracts files from a CodeBundle archive.
  */
 class Unbundler {
 public:
-
     /**
      * @brief Constructs an Unbundler object.
      * @param options Configuration options for unbundling.

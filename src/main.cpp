@@ -1,7 +1,7 @@
-#include "bundler.hpp"
 #include "bundleparser.hpp"
-#include "options.hpp"
+#include "bundler.hpp"
 #include "exceptions.hpp"
+#include "options.hpp"
 #include "unbundler.hpp"
 #include "utilities.hpp" // May need utilities here too
 #include <filesystem> // Requires C++17
@@ -11,21 +11,24 @@
 
 namespace { // Use an anonymous namespace for local helpers
 
-void printUsage()
+void printUsage(std::string defaultSeparator)
 {
     std::cerr << R"(Usage: codebundler <command> [options] [args...]
 
 Commands:
   bundle [output_file]         Bundle tracked files. Writes to stdout if no output_file.
-    --separator <sep>          Specify a custom separator string (default: "========== BOUNDARY ==========").
+    --separator <sep>          Specify a custom separator string (default: ")"
+  << defaultSeparator
+  << R"(").
     --description <desc>       Add an optional description to the bundle header.
+    -v, --verbose              Enable verbose output (1-4 levels).
 
   unbundle [input_file] [output_dir] Unbundle files from archive. Reads from stdin if no input_file.
-                                     Extracts to current directory if no output_dir.
-                                     (Separator is detected automatically from the first line).
+                               Extracts to current directory if no output_dir.
+                               (Separator is detected automatically from the first line).
     --no-verify                Disable SHA256 checksum verification during unbundling.
-  verify [input_file]          Verify checksums in the bundle without extracting. Reads from stdin if no input_file.
-                                     (Separator is detected automatically from the first line).
+    --trial-run                Perform a trial run without writing files.
+    -v, --verbose              Enable verbose output (1-4 levels).
 
 Options:
   -h, --help                   Show this help message.
@@ -38,10 +41,9 @@ struct Arguments {
     std::string inputFile;
     std::string outputFile;
     std::string outputDir = "."; // Default to current directory for unbundle
-    std::string separator = "========== BOUNDARY =========="; // Default separator (only for bundle)
     std::string description;
-    bool noVerify = false;
     bool showHelp = false;
+    codebundler::Options options;
 };
 
 // VERY basic argument parser. Consider a library (like CLI11) for more complex needs.
@@ -67,9 +69,9 @@ Arguments parseArguments(int argc, char* argv[])
 
         if (token == "--separator") {
             if (++currentArg < tokens.size()) {
-                args.separator = tokens[currentArg];
-                if (args.command == "unbundle" || args.command == "verify") {
-                    throw codebundler::ArgumentParserException("--separator is not used for unbundle or verify (it's auto-detected).");
+                args.options.separator = tokens[currentArg];
+                if (args.command == "unbundle") {
+                    throw codebundler::ArgumentParserException("--separator is not used for unbundle.");
                 }
             } else {
                 throw codebundler::ArgumentParserException("--separator requires an argument.");
@@ -77,22 +79,46 @@ Arguments parseArguments(int argc, char* argv[])
         } else if (token == "--no-verify") {
             // Allow --no-verify only for unbundle command
             if (args.command != "unbundle") {
-                 throw codebundler::ArgumentParserException("--no-verify is only applicable to the 'unbundle' command.");
+                throw codebundler::ArgumentParserException("--no-verify is only applicable to the 'unbundle' command.");
             }
-            args.noVerify = true;
+            args.options.verify = false;
         } else if (token == "--description") {
-             // Allow --description only for bundle command
+            // Allow --description only for bundle command
             if (args.command != "bundle") {
-                 throw codebundler::ArgumentParserException("--description is only applicable to the 'bundle' command.");
+                throw codebundler::ArgumentParserException("--description is only applicable to the 'bundle' command.");
             }
             if (++currentArg < tokens.size()) {
                 args.description = tokens[currentArg];
             } else {
                 throw codebundler::ArgumentParserException("--description requires an argument.");
             }
+        } else if (token == "--trial-run") {
+            // Allow --trial-run only for unbundle command
+            if (args.command != "unbundle") {
+                throw codebundler::ArgumentParserException("--trial-run is only applicable to the 'unbundle' command.");
+            }
+            args.options.trialRun = true;
+        } else if (token == "--no-verify") {
+            // Allow --no-verify only for unbundle command
+            if (args.command != "unbundle") {
+                throw codebundler::ArgumentParserException("--no-verify is only applicable to the 'unbundle' command.");
+            }
+            args.options.verify = false;
+        } else if (token == "--output-dir") {
+            if (args.command != "unbundle") {
+                throw codebundler::ArgumentParserException("--output-dir is only applicable to the 'unbundle' command.");
+            }
+            if (++currentArg < tokens.size()) {
+                args.outputDir = tokens[currentArg];
+            } else {
+                throw codebundler::ArgumentParserException("--output-dir requires an argument.");
+            }
         } else if (token == "-h" || token == "--help") {
             args.showHelp = true;
             return args; // Stop parsing if help is requested
+        } else if (token == "-v" || token == "--verbose") {
+            // increment verbosity level
+            args.options.verbose++;
         } else if (token.rfind("--", 0) == 0) {
             // Unknown option starting with --
             throw codebundler::ArgumentParserException("Unknown option: " + token);
@@ -104,33 +130,30 @@ Arguments parseArguments(int argc, char* argv[])
                 } else {
                     throw codebundler::ArgumentParserException("Unexpected positional argument for bundle: " + token);
                 }
-            } else if (args.command == "unbundle" || args.command == "verify") {
+            } else if (args.command == "unbundle") {
                 if (args.inputFile.empty()) {
                     args.inputFile = token; // First positional arg is input file
                 } else if (args.command == "unbundle" && args.outputDir == ".") { // Only set outputDir if not already set for unbundle
                     args.outputDir = token; // Second positional arg is output dir
-                } else if (args.command == "verify" && !args.inputFile.empty()) {
-                     throw codebundler::ArgumentParserException("Unexpected positional argument for verify: " + token);
-                }
-                 else {
+                } else {
                     // Covers case where outputDir was already set for unbundle, or too many args for verify
                     throw codebundler::ArgumentParserException("Unexpected positional argument for " + args.command + ": " + token);
                 }
             } else {
                 // Handles case where the command itself is unknown or arg appears before valid command
-                 throw codebundler::ArgumentParserException("Unknown command or misplaced argument: " + token);
+                throw codebundler::ArgumentParserException("Unknown command or misplaced argument: " + token);
             }
         }
         currentArg++;
     }
 
     // --- Post-parsing validation ---
-    if (args.command != "bundle" && args.command != "unbundle" && args.command != "verify") {
+    if (args.command != "bundle" && args.command != "unbundle") {
         // This check might be redundant if the positional arg logic catches unknown commands, but good for clarity
-        throw codebundler::ArgumentParserException("Invalid command: " + args.command + ". Must be 'bundle', 'unbundle', or 'verify'.");
+        throw codebundler::ArgumentParserException("Invalid command: " + args.command + ". Must be 'bundle', 'unbundle'.");
     }
     // Validation for --no-verify and --description already handled inline during parsing.
-    // Separator validation also handled inline for unbundle/verify.
+    // Separator validation also handled inline for unbundle.
     // It remains relevant for bundle, using the default if not provided.
 
     return args;
@@ -140,56 +163,45 @@ Arguments parseArguments(int argc, char* argv[])
 
 int main(int argc, char* argv[])
 {
+    Arguments args;
     try {
-        Arguments args = parseArguments(argc, argv);
+        args = parseArguments(argc, argv);
 
         if (args.showHelp) {
-            printUsage();
+            printUsage(args.options.separator);
             return 0;
         }
 
         if (args.command == "bundle") {
-            codebundler::Bundler bundler(args.separator); // Use provided or default separator
+            codebundler::Bundler bundler(args.options); // Use provided or default separator
             if (args.outputFile.empty()) {
                 // Bundle to standard output
-                std::cerr << "Bundling to standard output..." << std::endl;
                 bundler.bundleToStream(std::cout, args.description);
-                 std::cerr << "Bundling to standard output completed." << std::endl;
             } else {
                 // Bundle to a file
-                std::cerr << "Bundling to file: " << args.outputFile << "..." << std::endl;
                 bundler.bundleToFile(args.outputFile, args.description);
-                 std::cerr << "Bundling to file completed." << std::endl;
             }
-            // std::cerr << "Bundling completed successfully." << std::endl; // Use cerr for status messages not part of bundle output
 
         } else if (args.command == "unbundle") {
             codebundler::Options options;
             // Separator is auto-detected by Unbundler, no longer set here
-            options.trialRun = !args.noVerify; // Note the inversion
 
             codebundler::Unbundler unbundler(options);
             std::filesystem::path outputDir = args.outputDir; // Convert string to path
 
             if (args.inputFile.empty()) {
                 // Unbundle from standard input
-                std::cerr << "Unbundling from standard input to directory: " << outputDir.string() << "..." << std::endl;
                 unbundler.unbundleFromStream(std::cin, outputDir);
-                 std::cerr << "Unbundling from standard input completed." << std::endl;
             } else {
                 // Unbundle from a file
-                 std::cerr << "Unbundling from file: " << args.inputFile << " to directory: " << outputDir.string() << "..." << std::endl;
                 unbundler.unbundleFromFile(args.inputFile, outputDir);
-                 std::cerr << "Unbundling from file completed." << std::endl;
             }
-           // std::cerr << "Unbundling completed successfully." << std::endl;
-
         }
 
     } catch (const codebundler::ArgumentParserException& e) {
         std::cerr << "Argument Error: " << e.what() << std::endl
                   << std::endl;
-        printUsage();
+        printUsage(args.options.separator);
         return 1;
     } catch (const codebundler::CodeBundlerException& e) {
         // Catch specific bundler exceptions (IO, Git, Format, Checksum)

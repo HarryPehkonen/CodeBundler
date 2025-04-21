@@ -1,6 +1,7 @@
 #ifndef CODEBUNDLER_BUNDLER_HPP
 #define CODEBUNDLER_BUNDLER_HPP
 
+#include "options.hpp"
 #include <iosfwd> // Forward declaration for std::ostream
 #include <string>
 #include <vector>
@@ -16,7 +17,7 @@ public:
      * @brief Constructs a Bundler object.
      * @param separator The boundary marker to use between files in the bundle.
      */
-    explicit Bundler(std::string separator = "========= BOUNDARY ==========");
+    explicit Bundler(Options options);
 
     /**
      * @brief Bundles files tracked by `git ls-files` into the provided output stream.
@@ -39,7 +40,7 @@ public:
     void bundleToFile(const std::string& outputFilePath, const std::string& description = "");
 
 private:
-    std::string m_separator;
+    Options m_options;
 
     /**
      * @brief Writes the bundle header to the output stream.

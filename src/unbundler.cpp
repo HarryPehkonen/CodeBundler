@@ -14,7 +14,8 @@ namespace codebundler {
 //--------------------------------------------------------------------------
 Unbundler::Unbundler(Options options)
     : m_options(std::move(options))
-{ } // Separator is now detected, no need to validate here.
+{
+} // Separator is now detected, no need to validate here.
 
 //--------------------------------------------------------------------------
 // Public Methods
@@ -25,23 +26,10 @@ Unbundler::Unbundler(Options options)
  */
 void Unbundler::unbundleFromStream(std::istream& inputStream, const std::filesystem::path& outputDirectory)
 {
-    std::cout << "Starting unbundle process..." << std::endl;
-
-    /* do we actually need this?  i don't think so
-    if (!std::filesystem::exists(outputDirectory)) {
-        std::cout << "Output directory does not exist, attempting to create: " << outputDirectory << std::endl;
-        std::error_code ec;
-        std::filesystem::create_directories(outputDirectory, ec);
-        if (ec) {
-            throw FileIOException("Failed to create output directory: " + ec.message(), outputDirectory.string());
-        }
-    } else if (!std::filesystem::is_directory(outputDirectory)) {
-        throw FileIOException("Output path exists but is not a directory", outputDirectory.string());
-    }
-    */
+    m_options.verbose > 0 && std::cerr << "Starting unbundle process..." << std::endl;
 
     processBundle(inputStream, outputDirectory);
-    std::cout << "Unbundle process finished." << std::endl;
+    m_options.verbose > 0 && std::cerr << "Unbundle process finished." << std::endl;
 }
 
 /**
@@ -53,10 +41,9 @@ void Unbundler::unbundleFromFile(const std::string& inputFilePath, const std::fi
     if (!inputFileStream) {
         throw FileIOException("Failed to open input bundle file for reading", inputFilePath);
     }
-    std::cout << "Reading bundle from: " << inputFilePath << std::endl;
+    m_options.verbose > 0 && std::cerr << "Reading bundle from: " << inputFilePath << std::endl;
     unbundleFromStream(inputFileStream, outputDirectory);
 }
-
 
 /**
  * @brief Internal parsing and extraction/verification logic. Separator is detected from the stream.
@@ -70,7 +57,7 @@ bool Unbundler::processBundle(std::istream& inputStream, const std::filesystem::
     bool done = false;
 
     while (std::getline(inputStream, line)) {
-        std::cout << line << std::endl;
+        m_options.verbose > 3 && std::cerr << line << std::endl;
         done = parser.parse(std::make_optional(line));
     }
 
@@ -88,7 +75,7 @@ bool Unbundler::processBundle(std::istream& inputStream, const std::filesystem::
         std::cerr << "Error: Parsing failed!" << std::endl;
         return 1;
     } else {
-        std::cout << "Parsing completed successfully!" << std::endl;
+        m_options.verbose > 0 && std::cerr << "Parsing completed successfully!" << std::endl;
     }
 
     return true; // If we reached here without throwing, verification passed or wasn't applicable

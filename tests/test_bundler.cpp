@@ -87,7 +87,8 @@ protected:
 TEST_F(BundlerGitTest, BundleToStreamBasic)
 {
     using namespace codebundler;
-    Bundler bundler;
+    Options options;
+    Bundler bundler(options);
     std::stringstream output;
 
     // Since we changed CWD, getGitTrackedFiles should work if git commands run
@@ -118,9 +119,11 @@ TEST_F(BundlerGitTest, BundleToStreamBasic)
 TEST_F(BundlerGitTest, BundleWithCustomSeparatorAndDescription)
 {
     using namespace codebundler;
+    Options options;
     std::string custom_sep = "=== My_Separator ===";
+    options.separator = custom_sep; // Set custom separator
     std::string description = "Test bundle description";
-    Bundler bundler(custom_sep);
+    Bundler bundler(options);
     std::stringstream output;
 
     ASSERT_NO_THROW(bundler.bundleToStream(output, description));
@@ -138,7 +141,9 @@ TEST_F(BundlerGitTest, BundleWithCustomSeparatorAndDescription)
 TEST(BundlerTest, ConstructorEmptySeparator)
 {
     using namespace codebundler;
-    EXPECT_THROW(Bundler(""), std::invalid_argument);
+    Options options;
+    options.separator = ""; // Empty separator
+    EXPECT_THROW(Bundler bundler(options), std::invalid_argument);
 }
 
 // Add more tests:
