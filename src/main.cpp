@@ -18,8 +18,8 @@ void printUsage(std::string defaultSeparator)
 Commands:
   bundle [output_file]         Bundle tracked files. Writes to stdout if no output_file.
     --separator <sep>          Specify a custom separator string (default: ")"
-  << defaultSeparator
-  << R"(").
+              << defaultSeparator
+              << R"(").
     --description <desc>       Add an optional description to the bundle header.
     -v, --verbose              Enable verbose output (1-4 levels).
 
@@ -167,6 +167,22 @@ int main(int argc, char* argv[])
     try {
         args = parseArguments(argc, argv);
 
+        // not a good way to do this
+        if (args.options.verbose > 0) {
+            std::cerr << "Verbose mode enabled. Verbosity level: " << args.options.verbose << "\n"
+                      << "Command: " << args.command << "\n"
+                      << "Input file: " << args.inputFile << "\n"
+                      << "Output file: " << args.outputFile << "\n"
+                      << "Output directory: " << args.outputDir << "\n"
+                      << "Description: " << args.description << "\n"
+                      << "Separator: " << args.options.separator << "\n"
+                      << "Trial run: " << (args.options.trialRun ? "true" : "false") << "\n"
+                      << "Verify: " << (args.options.verify ? "true" : "false") << "\n"
+                      << "Show help: " << (args.showHelp ? "true" : "false") << "\n"
+                      << "Verbosity level: " << args.options.verbose
+                      << std::endl;
+        }
+
         if (args.showHelp) {
             printUsage(args.options.separator);
             return 0;
@@ -183,10 +199,9 @@ int main(int argc, char* argv[])
             }
 
         } else if (args.command == "unbundle") {
-            codebundler::Options options;
             // Separator is auto-detected by Unbundler, no longer set here
 
-            codebundler::Unbundler unbundler(options);
+            codebundler::Unbundler unbundler(args.options);
             std::filesystem::path outputDir = args.outputDir; // Convert string to path
 
             if (args.inputFile.empty()) {

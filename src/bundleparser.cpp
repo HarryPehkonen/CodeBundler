@@ -112,9 +112,9 @@ const std::function<void(const InputType&, BundleParser&)> BundleParser::saveFil
 
         if (parser.options_.verbose > 2) {
             std::cerr << "  Attempting to save file: '" << parser.filename_ << "'\n"
-                << "  With Checksum: '" << parser.checksum_ << "'\n"
-                << "  Output Path: '" << parser.outputPath_ << "'\n"
-                << "  Line " << parser.lineCount_ << std::endl;
+                      << "  With Checksum: '" << parser.checksum_ << "'\n"
+                      << "  Output Path: '" << parser.outputPath_ << "'\n"
+                      << "  Line " << parser.lineCount_ << std::endl;
         }
 
         if (parser.filename_.empty()) {
@@ -192,8 +192,10 @@ const std::function<void(const InputType&, BundleParser&)> BundleParser::saveFil
                         toSave = false;
                         if (parser.options_.verbose > 2) {
                             std::cerr << "Verifying but checksum mismatch\n"
-                                "  Expected:   " << parser.checksum_ << "\n"
-                                "  Calculated: " << calculatedChecksum << std::endl;
+                                         "  Expected:   "
+                                      << parser.checksum_ << "\n"
+                                                             "  Calculated: "
+                                      << calculatedChecksum << std::endl;
                         }
                         throw codebundler::ChecksumMismatchException(parser.filename_, parser.checksum_, calculatedChecksum);
                     }
@@ -315,8 +317,7 @@ bool BundleParser::parse(const InputType& input)
                 ParserState previousState = state_;
                 state_ = transition.nextState;
 
-                options_.verbose > 2  && std::cerr << "Transition: State " << static_cast<int>(previousState)
-                              << " -> State " << static_cast<int>(state_) << std::endl;
+                options_.verbose > 2 && std::cerr << "Transition: State " << static_cast<int>(previousState) << " -> State " << static_cast<int>(state_) << std::endl;
                 return state_ == ParserState::DONE; // Return true if parsing is finished
             }
             // else: predicate was false, try next transition for this state
@@ -324,12 +325,7 @@ bool BundleParser::parse(const InputType& input)
     }
 
     // If no transition matched for the current state and input
-    options_.verbose > 2 && std::cerr << "Error: No valid transition found from state "
-              << static_cast<int>(state_)
-              << " for input: "
-              << (input ? "'" + input.value() + "'" : "EOF")
-              << " line " << lineCount_
-              << std::endl;
+    options_.verbose > 2 && std::cerr << "Error: No valid transition found from state " << static_cast<int>(state_) << " for input: " << (input ? "'" + input.value() + "'" : "EOF") << " line " << lineCount_ << std::endl;
     // You might want to set state to an error state or throw
     throw std::runtime_error("Invalid state or input encountered during parsing");
 

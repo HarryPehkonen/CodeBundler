@@ -17,7 +17,7 @@ public:
      * @brief Constructs a Bundler object.
      * @param separator The boundary marker to use between files in the bundle.
      */
-    explicit Bundler(Options options);
+    explicit Bundler(const Options& options);
 
     /**
      * @brief Bundles files tracked by `git ls-files` into the provided output stream.

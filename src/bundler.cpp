@@ -10,7 +10,7 @@ namespace codebundler {
 //--------------------------------------------------------------------------
 // Constructor
 //--------------------------------------------------------------------------
-Bundler::Bundler(Options options)
+Bundler::Bundler(const Options& options)
     : m_options(options)
 {
     if (m_options.separator.empty()) {
