@@ -1,4 +1,5 @@
 #include "bundleparser.hpp"
+#include "constants.hpp"
 #include "exceptions.hpp"
 #include "options.hpp"
 
@@ -44,14 +45,14 @@ const std::function<bool(const InputType&, BundleParser&)> BundleParser::isSepar
 
 const std::function<bool(const InputType&, BundleParser&)> BundleParser::isFilename =
     [](const InputType& input, BundleParser& parser) {
-        bool result = input && input.value().find(FILENAME_PREFIX, 0) == 0;
+        bool result = input && input.value().find(codebundler::FILENAME_PREFIX, 0) == 0;
         parser.options_.verbose > 2 && std::cerr << "predicate: isFilename ('" << (input ? input.value() : "EOF") << "') -> " << (result ? "true" : "false") << std::endl;
         return result;
     };
 
 const std::function<bool(const InputType&, BundleParser&)> BundleParser::isChecksum =
     [](const InputType& input, BundleParser& parser) {
-        bool result = input && input.value().find(CHECKSUM_PREFIX, 0) == 0;
+        bool result = input && input.value().find(codebundler::CHECKSUM_PREFIX, 0) == 0;
         parser.options_.verbose > 2 && std::cerr << "predicate: isChecksum ('" << (input ? input.value() : "EOF") << "') -> " << (result ? "true" : "false") << std::endl;
         return result;
     };
@@ -77,7 +78,7 @@ const std::function<void(const InputType&, BundleParser&)> BundleParser::remembe
 const std::function<void(const InputType&, BundleParser&)> BundleParser::rememberFilename =
     [](const InputType& input, BundleParser& parser) {
         if (input) {
-            parser.filename_ = parser.trim(input.value().substr(FILENAME_PREFIX.length()));
+            parser.filename_ = parser.trim(input.value().substr(codebundler::FILENAME_PREFIX.length()));
             parser.options_.verbose > 2 && std::cerr << "action: rememberFilename -> filename set to '" << parser.filename_ << "'" << std::endl;
         } else {
             parser.options_.verbose > 2 && std::cerr << "action: rememberFilename (skipped on EOF)" << std::endl;
@@ -87,7 +88,7 @@ const std::function<void(const InputType&, BundleParser&)> BundleParser::remembe
 const std::function<void(const InputType&, BundleParser&)> BundleParser::rememberChecksum =
     [](const InputType& input, BundleParser& parser) {
         if (input) {
-            parser.checksum_ = parser.trim(input.value().substr(CHECKSUM_PREFIX.length()));
+            parser.checksum_ = parser.trim(input.value().substr(codebundler::CHECKSUM_PREFIX.length()));
             parser.options_.verbose > 2 && std::cerr << "action: rememberChecksum -> checksum set to '" << parser.checksum_ << "'" << std::endl;
         } else {
             parser.options_.verbose > 2 && std::cerr << "action: rememberChecksum (skipped on EOF)" << std::endl;
@@ -218,7 +219,7 @@ const std::function<void(const InputType&, BundleParser&)> BundleParser::saveFil
         if (parser.options_.trialRun) {
             parser.options_.verbose > 2 && std::cerr << "  Trial run: file not actually written." << std::endl;
         } else {
-            fileStream.open(filepath, std::ios::out | std::ios::binary | std::ios::trunc);
+            fileStream.open(filepath, std::ios::out | std::ios::trunc);
 
             fileStream.write(fileContent.data(), fileContent.size());
             fileStream.close(); // Close explicitly after write

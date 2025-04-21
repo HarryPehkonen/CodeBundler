@@ -1,18 +1,23 @@
 # CodeBundler
 Bundles code tracked by Git into a single file for easier sharing, especially with AI assistants. Includes checksums for integrity verification.
 
-If a bundle was created by an LLM, it most likely will not contain a valid SHA-256 checksum.  In this case, the `--no-verify` option can be used to unbundle without checksum verification.
+If a bundle was created by an LLM, it most likely will not contain a valid checksum.  In this case, the `--no-verify` option can be used to unbundle without checksum verification.
 
 ## Features
 
 *   Handles ASCII and UTF-8.
+*   Always ensures files end with a newline.
 *   Concatenates files listed by `git ls-files` into a single bundle.
 *   Uses a customizable boundary marker.
-*   Includes a SHA-256 checksum for each file within the bundle.
-*   Uses PicoSHA2 for SHA-256 hashing.
+*   Includes a checksum for each file within the bundle.
+*   Uses PicoSHA2 for hashing.
+*   Checksums are not guaranteed to match the original file
+    content, as the bundle format may modify the file content (e.g.,
+    adding a newline at the end).
 *   Can unbundle files, verifying checksums during extraction.
 *   Can verify the integrity of a bundle file without extracting.
-*   Can unbundle without SHA-256 verification if it's missing.
+*   Can unbundle without checksum verification if it's missing, modified,
+    or wrong (file contents changed without updating checksum).
 *   Designed for use in Git repositories.
 *   Supports custom separators.
 *   All external libraries will be checked for local presence, and

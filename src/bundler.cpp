@@ -1,4 +1,5 @@
 #include "bundler.hpp"
+#include "constants.hpp"
 #include "exceptions.hpp"
 #include "utilities.hpp"
 #include <filesystem> // For path manipulation
@@ -97,8 +98,8 @@ void Bundler::writeFileEntry(std::ostream& outputStream, const std::string& file
     // Normalize path separators for consistency in the bundle? Optional.
     // std::string normalizedPath = fsPath.generic_string(); // Use forward slashes
 
-    outputStream << "Filename: " << filePath << "\n"; // Keep original path from git
-    outputStream << "Checksum: SHA256:" << checksum << "\n";
+    outputStream << codebundler::FILENAME_PREFIX << filePath << "\n"; // Keep original path from git
+    outputStream << codebundler::CHECKSUM_PREFIX << checksum << "\n";
     outputStream << fileContent; // Write content directly
     // Ensure a newline separates content from the next separator if content doesn't end with one
     if (!fileContent.empty() && fileContent.back() != '\n') {

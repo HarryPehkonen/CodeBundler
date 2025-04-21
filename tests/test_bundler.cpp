@@ -1,5 +1,7 @@
 #include "bundler.hpp"
+#include "constants.hpp"
 #include "exceptions.hpp"
+#include "options.hpp"
 #include "utilities.hpp" // For helpers if needed
 #include <cstdlib> // For system()
 #include <filesystem> // Requires C++17
@@ -97,15 +99,15 @@ TEST_F(BundlerGitTest, BundleToStreamBasic)
     std::string bundleContent = output.str();
 
     // Basic checks - expecting separator, filename headers, content
-    EXPECT_NE(bundleContent.find("========= BOUNDARY =========="), std::string::npos);
-    EXPECT_NE(bundleContent.find("Filename: file1.txt"), std::string::npos);
-    EXPECT_NE(bundleContent.find("Checksum: SHA256:"), std::string::npos);
+    EXPECT_NE(bundleContent.find(options.separator), std::string::npos);
+    EXPECT_NE(bundleContent.find(codebundler::FILENAME_PREFIX + "file1.txt"), std::string::npos);
+    EXPECT_NE(bundleContent.find(codebundler::CHECKSUM_PREFIX), std::string::npos);
     EXPECT_NE(bundleContent.find("Content of file 1."), std::string::npos);
 
 #ifdef _WIN32 // Git might use backslashes on Windows
-    EXPECT_TRUE(bundleContent.find("Filename: subdir\\file2.bin") != std::string::npos || bundleContent.find("Filename: subdir/file2.bin") != std::string::npos);
+    EXPECT_TRUE(bundleContent.find(codebundler::FILENAME_PREFIX + "subdir\\file2.bin") != std::string::npos || bundleContent.find(codebundler::FILENAME_PREFIX + "subdir/file2.bin") != std::string::npos);
 #else
-    EXPECT_NE(bundleContent.find("Filename: subdir/file2.bin"), std::string::npos);
+    EXPECT_NE(bundleContent.find(codebundler::FILENAME_PREFIX + "subdir/file2.bin"), std::string::npos);
 #endif
 
     EXPECT_NE(bundleContent.find("Binary\0Data", 0, 11), std::string::npos); // Check for binary data part
@@ -113,7 +115,10 @@ TEST_F(BundlerGitTest, BundleToStreamBasic)
     // Verify checksum for file1.txt (calculate expected manually or via utility)
     std::string file1_content = "Content of file 1.\n";
     std::string file1_expected_checksum = utilities::calculateSHA256(file1_content);
-    EXPECT_NE(bundleContent.find("SHA256:" + file1_expected_checksum), std::string::npos);
+    std::string look_for = codebundler::CHECKSUM_PREFIX + file1_expected_checksum;
+    std::cerr << "Bundle:  " << bundleContent << "\nThat's it" << std::endl;
+    std::cerr << "Looking for: " << look_for << std::endl;
+    EXPECT_NE(bundleContent.find(look_for), std::string::npos);
 }
 
 TEST_F(BundlerGitTest, BundleWithCustomSeparatorAndDescription)
@@ -132,10 +137,11 @@ TEST_F(BundlerGitTest, BundleWithCustomSeparatorAndDescription)
 
     EXPECT_NE(bundleContent.find(custom_sep), std::string::npos);
     EXPECT_NE(bundleContent.find("Description: " + description), std::string::npos);
-    EXPECT_NE(bundleContent.find("Filename: file1.txt"), std::string::npos);
+    EXPECT_NE(bundleContent.find(codebundler::FILENAME_PREFIX + "file1.txt"), std::string::npos);
 
     // Check that default separator is NOT present
-    EXPECT_EQ(bundleContent.find("========== BOUNDARY =========="), std::string::npos);
+    codebundler::Options default_options;
+    EXPECT_EQ(bundleContent.find(default_options.separator), std::string::npos);
 }
 
 TEST(BundlerTest, ConstructorEmptySeparator)

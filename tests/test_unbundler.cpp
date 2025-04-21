@@ -1,3 +1,4 @@
+#include "constants.hpp"
 #include "exceptions.hpp"
 #include "options.hpp"
 #include "unbundler.hpp"
@@ -50,12 +51,12 @@ protected:
         ss << sep << "\n"; // The separator line itself
         ss << "Description: A test bundle\n"; // Optional header line
         ss << sep << "\n"; // Separator after header
-        ss << "Filename: fileA.txt\n";
-        ss << "Checksum: SHA256:" << checksum1 << "\n";
+        ss << codebundler::FILENAME_PREFIX << "fileA.txt\n";
+        ss << codebundler::CHECKSUM_PREFIX << checksum1 << "\n";
         ss << content1; // Content doesn't include trailing newline in *this* stream
         ss << sep << "\n";
-        ss << "Filename: data/fileB.txt\n";
-        ss << "Checksum: SHA256:" << checksum2 << "\n";
+        ss << codebundler::FILENAME_PREFIX << "data/fileB.txt\n";
+        ss << codebundler::CHECKSUM_PREFIX << checksum2 << "\n";
         ss << content2; // Content doesn't include trailing newline in *this* stream
         ss << sep << "\n"; // Final separator
 
@@ -105,8 +106,8 @@ TEST_F(UnbundlerTest, UnbundleWithNoVerify)
                                    .substr(0, 64);
 
     ss << sep << "\n";
-    ss << "Filename: bad_checksum.txt\n";
-    ss << "Checksum: SHA256:" << bad_checksum << "\n";
+    ss << codebundler::FILENAME_PREFIX << "bad_checksum.txt\n";
+    ss << codebundler::CHECKSUM_PREFIX << bad_checksum << "\n";
     ss << content1; // Write content
     ss << sep << "\n";
 
@@ -137,8 +138,8 @@ TEST_F(UnbundlerTest, UnbundleThrowsOnChecksumMismatch)
                                    .substr(0, 64);
 
     ss << sep << "\n";
-    ss << "Filename: bad_checksum.txt\n";
-    ss << "Checksum: SHA256:" << bad_checksum << "\n";
+    ss << codebundler::FILENAME_PREFIX << "bad_checksum.txt\n";
+    ss << codebundler::CHECKSUM_PREFIX << bad_checksum << "\n";
     ss << content1;
     ss << sep << "\n";
 
@@ -167,7 +168,7 @@ TEST_F(UnbundlerTest, UnbundleWithMissingChecksumAndVerifyEnabled)
     std::string content1 = "Data without checksum line.\n";
 
     ss << sep << "\n";
-    ss << "Filename: no_checksum.txt\n";
+    ss << codebundler::FILENAME_PREFIX << "no_checksum.txt\n";
     // Missing Checksum line here
     ss << content1;
     ss << sep << "\n";
@@ -207,7 +208,7 @@ TEST_F(UnbundlerTest, MalformedBundleMissingFilename)
     std::string sep = "---SEP---";
     std::stringstream bad_stream;
     bad_stream << sep << "\n";
-    bad_stream << "Checksum: SHA256:...\n"; // Missing Filename line
+    bad_stream << codebundler::CHECKSUM_PREFIX << "...\n"; // Missing Filename line
     bad_stream << "content\n";
     bad_stream << sep << "\n";
 
@@ -223,7 +224,7 @@ TEST_F(UnbundlerTest, BundleEndsAbruptlyAfterFilename)
     std::string sep = "---SEP---";
     std::stringstream bad_stream;
     bad_stream << sep << "\n";
-    bad_stream << "Filename: incomplete.txt"; // No newline, no checksum, no content, no final separator
+    bad_stream << codebundler::FILENAME_PREFIX << "incomplete.txt"; // No newline, no checksum, no content, no final separator
 
     // It should process the entry (likely with warnings) but might not throw depending on strictness.
     // Current implementation logs warning and processes empty content. Check log output if important.
