@@ -3,9 +3,10 @@ Bundles code tracked by Git into a single file for easier sharing, especially wi
 
 If a bundle was created by an LLM, it most likely will not contain a valid checksum.  In this case, the `--no-verify` option can be used to unbundle without checksum verification.
 
-## Features
+## Features and Limitation
 
 *   Handles ASCII and UTF-8.
+*   No support for binary files.
 *   Always ensures files end with a newline.
 *   Concatenates files listed by `git ls-files` into a single bundle.
 *   Uses a customizable boundary marker.
@@ -35,7 +36,7 @@ codebundler bundle
 # Bundle with a custom separator
 codebundler bundle --separator="CUSTOM_SEPARATOR" bundle.txt
 
-# Unbundle from bundle.txt into the 'output' directory (verifies checksums if available)
+# Unbundle from bundle.txt into the 'output' directory
 codebundler unbundle bundle.txt output
 
 # Unbundle into the current working directory
@@ -49,7 +50,7 @@ codebundler unbundle --no-verify bundle.txt output
 cat bundle.txt | codebundler unbundle
 
 # Verify the integrity of bundle.txt without extracting
-codebundler verify bundle.txt
+codebundler unbundle --trial-run bundle.txt
 ```
 
 ## Bundle Format
@@ -76,7 +77,7 @@ Requires CMake (3.14+) and a C++17 compatible compiler. Google Test is fetched a
 ```bash
 git clone <repository_url>
 cd codebundler
-cmake -S . -B build
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build
 cmake --install build --prefix /path/to/install # Optional install
 ```
