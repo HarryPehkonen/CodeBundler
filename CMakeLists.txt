@@ -11,6 +11,10 @@ option(CODEBUNDLER_ENABLE_FORMATTING "Format code with clang-format target" ON)
 option(CODEBUNDLER_ENABLE_TESTING "Build unit tests" ON)
 option(CODEBUNDLER_INSTALL "Enable installation" ON)
 
+# --- Find Required Packages ---
+find_package(Threads REQUIRED)
+find_package(FSMgine REQUIRED)
+
 # --- Include subdirectories ---
 add_subdirectory(external) # Process dependencies first
 add_subdirectory(src)

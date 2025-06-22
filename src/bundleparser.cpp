@@ -16,6 +16,95 @@ BundleParser::BundleParser(const codebundler::Options& options, Hasher hasher, s
     , hasher_(std::move(hasher))
     , outputPath_(outputPath)
 {
+    auto builder = fsm_.get_builder();
+    
+    // READ SEPARATOR -> EXPECT FILENAME OR COMMENT (always transition)
+    builder.from("READ SEPARATOR")
+        .action([this](const InputType& input) { rememberSeparator(input); })
+        .to("EXPECT FILENAME OR COMMENT");
+    
+    // EXPECT FILENAME OR COMMENT transitions
+    builder.from("EXPECT FILENAME OR COMMENT")
+        .predicate([this](const InputType& input) { return isFilename(input); })
+        .action([this](const InputType& input) { rememberFilename(input); })
+        .to("EXPECT CHECKSUM OR CONTENT");
+    
+    builder.from("EXPECT FILENAME OR COMMENT")
+        .predicate([this](const InputType& input) { return isChecksum(input); })
+        .action([this](const InputType& input) { errorMissingFilename(input); })
+        .to("DONE");
+    
+    builder.from("EXPECT FILENAME OR COMMENT")
+        .action([this](const InputType& input) { skip(input); })
+        .to("IN COMMENT"); // If not filename or checksum, assume comment start
+    
+    // IN COMMENT transitions
+    builder.from("IN COMMENT")
+        .predicate([this](const InputType& input) { return isSeparator(input); })
+        .action([this](const InputType& input) { skip(input); })
+        .to("EXPECT FILENAME");
+    
+    builder.from("IN COMMENT")
+        .predicate([this](const InputType& input) { return isEOF(input); })
+        .action([this](const InputType& input) { done(input); })
+        .to("DONE");
+    
+    builder.from("IN COMMENT")
+        .action([this](const InputType& input) { skip(input); })
+        .to("IN COMMENT"); // Continue skipping comment lines
+    
+    // EXPECT CHECKSUM OR CONTENT transitions
+    builder.from("EXPECT CHECKSUM OR CONTENT")
+        .predicate([this](const InputType& input) { return isChecksum(input); })
+        .action([this](const InputType& input) { rememberChecksum(input); })
+        .to("IN CONTENT");
+    
+    builder.from("EXPECT CHECKSUM OR CONTENT")
+        .predicate([this](const InputType& input) { return isSeparator(input); })
+        .action([this](const InputType& input) { saveFile(input); })
+        .to("EXPECT FILENAME");
+    
+    builder.from("EXPECT CHECKSUM OR CONTENT")
+        .predicate([this](const InputType& input) { return isEOF(input); })
+        .action([this](const InputType& input) { errorBadFormat(input); })
+        .to("DONE");
+    
+    builder.from("EXPECT CHECKSUM OR CONTENT")
+        .action([this](const InputType& input) { rememberContentLine(input); })
+        .to("IN CONTENT"); // If not checksum/sep/EOF, assume content
+    
+    // IN CONTENT transitions
+    builder.from("IN CONTENT")
+        .predicate([this](const InputType& input) { return isSeparator(input); })
+        .action([this](const InputType& input) { saveFile(input); })
+        .to("EXPECT FILENAME");
+    
+    builder.from("IN CONTENT")
+        .predicate([this](const InputType& input) { return isEOF(input); })
+        .action([this](const InputType& input) { saveFile(input); })
+        .to("DONE");
+    
+    builder.from("IN CONTENT")
+        .action([this](const InputType& input) { rememberContentLine(input); })
+        .to("IN CONTENT"); // Continue reading content lines
+    
+    // EXPECT FILENAME transitions
+    builder.from("EXPECT FILENAME")
+        .predicate([this](const InputType& input) { return isFilename(input); })
+        .action([this](const InputType& input) { rememberFilename(input); })
+        .to("EXPECT CHECKSUM OR CONTENT");
+    
+    builder.from("EXPECT FILENAME")
+        .predicate([this](const InputType& input) { return isEOF(input); })
+        .action([this](const InputType& input) { done(input); })
+        .to("DONE");
+    
+    builder.from("EXPECT FILENAME")
+        .action([this](const InputType& input) { skip(input); })
+        .to("IN COMMENT"); // If not filename/EOF after separator, treat as comment
+    
+    // Set initial state
+    fsm_.setInitialState("READ SEPARATOR");
 }
 
 std::string BundleParser::trim(const std::string& str)
@@ -30,305 +119,254 @@ std::string BundleParser::trim(const std::string& str)
 }
 
 // predicates
-const std::function<bool(const InputType&, BundleParser&)> BundleParser::always =
-    [](const InputType&, BundleParser& parser) {
-        parser.options_.verbose > 2 && std::cerr << "predicate: always -> true" << std::endl;
-        return true;
-    };
+bool BundleParser::isSeparator(const InputType& input) const
+{
+    bool result = input && !separator_.empty() && input.value().find(separator_, 0) == 0;
+    options_.verbose > 2 && std::cerr << "predicate: isSeparator ('" << (input ? input.value() : "EOF") << "' vs '" << separator_ << "') -> " << (result ? "true" : "false") << std::endl;
+    return result;
+}
 
-const std::function<bool(const InputType&, BundleParser&)> BundleParser::isSeparator =
-    [](const InputType& input, BundleParser& parser) {
-        bool result = input && !parser.separator_.empty() && input.value().find(parser.separator_, 0) == 0;
-        parser.options_.verbose > 2 && std::cerr << "predicate: isSeparator ('" << (input ? input.value() : "EOF") << "' vs '" << parser.separator_ << "') -> " << (result ? "true" : "false") << std::endl;
-        return result;
-    };
+bool BundleParser::isFilename(const InputType& input) const
+{
+    bool result = input && input.value().find(codebundler::FILENAME_PREFIX, 0) == 0;
+    options_.verbose > 2 && std::cerr << "predicate: isFilename ('" << (input ? input.value() : "EOF") << "') -> " << (result ? "true" : "false") << std::endl;
+    return result;
+}
 
-const std::function<bool(const InputType&, BundleParser&)> BundleParser::isFilename =
-    [](const InputType& input, BundleParser& parser) {
-        bool result = input && input.value().find(codebundler::FILENAME_PREFIX, 0) == 0;
-        parser.options_.verbose > 2 && std::cerr << "predicate: isFilename ('" << (input ? input.value() : "EOF") << "') -> " << (result ? "true" : "false") << std::endl;
-        return result;
-    };
+bool BundleParser::isChecksum(const InputType& input) const
+{
+    bool result = input && input.value().find(codebundler::CHECKSUM_PREFIX, 0) == 0;
+    options_.verbose > 2 && std::cerr << "predicate: isChecksum ('" << (input ? input.value() : "EOF") << "') -> " << (result ? "true" : "false") << std::endl;
+    return result;
+}
 
-const std::function<bool(const InputType&, BundleParser&)> BundleParser::isChecksum =
-    [](const InputType& input, BundleParser& parser) {
-        bool result = input && input.value().find(codebundler::CHECKSUM_PREFIX, 0) == 0;
-        parser.options_.verbose > 2 && std::cerr << "predicate: isChecksum ('" << (input ? input.value() : "EOF") << "') -> " << (result ? "true" : "false") << std::endl;
-        return result;
-    };
-
-const std::function<bool(const InputType&, BundleParser&)> BundleParser::isEOF =
-    [](const InputType& input, BundleParser& parser) {
-        bool result = !input.has_value();
-        parser.options_.verbose > 2 && std::cerr << "predicate: isEOF -> " << (result ? "true" : "false") << std::endl;
-        return result;
-    };
+bool BundleParser::isEOF(const InputType& input) const
+{
+    bool result = !input.has_value();
+    options_.verbose > 2 && std::cerr << "predicate: isEOF -> " << (result ? "true" : "false") << std::endl;
+    return result;
+}
 
 // actions
-const std::function<void(const InputType&, BundleParser&)> BundleParser::rememberSeparator =
-    [](const InputType& input, BundleParser& parser) {
-        if (input) {
-            parser.separator_ = parser.trim(input.value());
-            parser.options_.verbose > 2 && std::cerr << "action: rememberSeparator -> separator set to '" << parser.separator_ << "'" << std::endl;
-        } else {
-            parser.options_.verbose > 2 && std::cerr << "action: rememberSeparator (skipped on EOF)" << std::endl;
+void BundleParser::rememberSeparator(const InputType& input)
+{
+    if (input) {
+        separator_ = trim(input.value());
+        options_.verbose > 2 && std::cerr << "action: rememberSeparator -> separator set to '" << separator_ << "'" << std::endl;
+    } else {
+        options_.verbose > 2 && std::cerr << "action: rememberSeparator (skipped on EOF)" << std::endl;
+    }
+}
+
+void BundleParser::rememberFilename(const InputType& input)
+{
+    if (input) {
+        filename_ = trim(input.value().substr(codebundler::FILENAME_PREFIX.length()));
+        options_.verbose > 2 && std::cerr << "action: rememberFilename -> filename set to '" << filename_ << "'" << std::endl;
+    } else {
+        options_.verbose > 2 && std::cerr << "action: rememberFilename (skipped on EOF)" << std::endl;
+    }
+}
+
+void BundleParser::rememberChecksum(const InputType& input)
+{
+    if (input) {
+        checksum_ = trim(input.value().substr(codebundler::CHECKSUM_PREFIX.length()));
+        options_.verbose > 2 && std::cerr << "action: rememberChecksum -> checksum set to '" << checksum_ << "'" << std::endl;
+    } else {
+        options_.verbose > 2 && std::cerr << "action: rememberChecksum (skipped on EOF)" << std::endl;
+    }
+}
+
+void BundleParser::rememberContentLine(const InputType& input)
+{
+    if (input) {
+        // Don't trim content lines. preserve whitespace within the line
+        lines_.push_back(input.value());
+        options_.verbose > 2 && std::cerr << "action: rememberContentLine -> added '" << input.value() << "'" << std::endl;
+    } else {
+        options_.verbose > 2 && std::cerr << "action: rememberContentLine (skipped on EOF)" << std::endl;
+    }
+}
+
+void BundleParser::saveFile(const InputType& /*input*/)
+{
+    options_.verbose > 2 && std::cerr << "action: saveFile" << std::endl;
+
+    if (options_.verbose > 2) {
+        std::cerr << "  Attempting to save file: '" << filename_ << "'\n"
+                  << "  With Checksum: '" << checksum_ << "'\n"
+                  << "  Output Path: '" << outputPath_ << "'\n"
+                  << "  Line " << lineCount_ << std::endl;
+    }
+
+    if (filename_.empty()) {
+        options_.verbose > 2 && std::cerr << "Error: Cannot save file with empty filename." << std::endl;
+        throw codebundler::BundleFormatException("Empty filename.");
+    }
+
+    std::filesystem::path filepath = outputPath_ / filename_;
+
+    // we'll get the file contents regardless
+    std::stringstream fileContentStream;
+    for (size_t i = 0; i < lines_.size(); ++i) {
+        fileContentStream << lines_[i] << "\n";
+    }
+    std::string fileContent = fileContentStream.str(); // Reconstruct content
+
+    // things to check:
+    //   - have hasher?   (h)
+    //   - have checksum? (c)
+    //   - calculated checksum matches? (m)
+    //   - supposed to verify?          (v)
+    //
+    //   h c m v save?
+    //   0 x x 0 yes
+    //   0 x x 1 no
+    //   1 0 x 0 yes
+    //   1 0 x 1 no
+    //   1 1 x 0 yes
+    //   1 1 0 1 no
+    //   1 1 1 0 yes
+    //   1 1 1 1 yes
+
+    // find all the bad scenarios and report them if verbosity
+    // is set
+    bool toSave = true;
+    std::string calculatedChecksum;
+    if (!hasher_) {
+
+        // 0 x x x
+        if (options_.verify) {
+
+            // 0 x x 1
+            // no hasher but verifying
+            toSave = false;
+            options_.verbose > 2 && std::cerr << "No hasher but supposed to verify" << std::endl;
+            throw codebundler::CodeBundlerException("No hasher but supposed to verify");
         }
-    };
+    } else {
 
-const std::function<void(const InputType&, BundleParser&)> BundleParser::rememberFilename =
-    [](const InputType& input, BundleParser& parser) {
-        if (input) {
-            parser.filename_ = parser.trim(input.value().substr(codebundler::FILENAME_PREFIX.length()));
-            parser.options_.verbose > 2 && std::cerr << "action: rememberFilename -> filename set to '" << parser.filename_ << "'" << std::endl;
-        } else {
-            parser.options_.verbose > 2 && std::cerr << "action: rememberFilename (skipped on EOF)" << std::endl;
-        }
-    };
+        // 1 x x x
+        if (checksum_.empty()) {
 
-const std::function<void(const InputType&, BundleParser&)> BundleParser::rememberChecksum =
-    [](const InputType& input, BundleParser& parser) {
-        if (input) {
-            parser.checksum_ = parser.trim(input.value().substr(codebundler::CHECKSUM_PREFIX.length()));
-            parser.options_.verbose > 2 && std::cerr << "action: rememberChecksum -> checksum set to '" << parser.checksum_ << "'" << std::endl;
-        } else {
-            parser.options_.verbose > 2 && std::cerr << "action: rememberChecksum (skipped on EOF)" << std::endl;
-        }
-    };
+            // 1 0 x x
+            if (options_.verify) {
 
-const std::function<void(const InputType&, BundleParser&)> BundleParser::rememberContentLine =
-    [](const InputType& input, BundleParser& parser) {
-        if (input) {
-            // Don't trim content lines.  preserve whitespace within the line
-            parser.lines_.push_back(input.value());
-            parser.options_.verbose > 2 && std::cerr << "action: rememberContentLine -> added '" << input.value() << "'" << std::endl;
-
-        } else {
-            parser.options_.verbose > 2 && std::cerr << "action: rememberContentLine (skipped on EOF)" << std::endl;
-        }
-    };
-
-const std::function<void(const InputType&, BundleParser&)> BundleParser::saveFile =
-    [](const InputType& /*input*/, BundleParser& parser) {
-        parser.options_.verbose > 2 && std::cerr << "action: saveFile" << std::endl;
-
-        if (parser.options_.verbose > 2) {
-            std::cerr << "  Attempting to save file: '" << parser.filename_ << "'\n"
-                      << "  With Checksum: '" << parser.checksum_ << "'\n"
-                      << "  Output Path: '" << parser.outputPath_ << "'\n"
-                      << "  Line " << parser.lineCount_ << std::endl;
-        }
-
-        if (parser.filename_.empty()) {
-            parser.options_.verbose > 2 && std::cerr << "Error: Cannot save file with empty filename." << std::endl;
-            throw codebundler::BundleFormatException("Empty filename.");
-        }
-
-        std::filesystem::path filepath = parser.outputPath_ / parser.filename_;
-
-        // we'll get the file contents regardless
-        std::stringstream fileContentStream;
-        for (size_t i = 0; i < parser.lines_.size(); ++i) {
-            fileContentStream << parser.lines_[i] << "\n";
-        }
-        std::string fileContent = fileContentStream.str(); // Reconstruct content
-
-        // things to check:
-        //   - have hasher?   (h)
-        //   - have checksum? (c)
-        //   - calculated checksum matches? (m)
-        //   - supposed to verify?          (v)
-        //
-        //   h c m v save?
-        //   0 x x 0 yes
-        //   0 x x 1 no
-        //   1 0 x 0 yes
-        //   1 0 x 1 no
-        //   1 1 x 0 yes
-        //   1 1 0 1 no
-        //   1 1 1 0 yes
-        //   1 1 1 1 yes
-
-        // find all the bad scenarios and report them if verbosity
-        // is set
-        bool toSave = true;
-        std::string calculatedChecksum;
-        if (!parser.hasher_) {
-
-            // 0 x x x
-            if (parser.options_.verify) {
-
-                // 0 x x 1
-                // no hasher but verifying
+                // 1 0 x 1
+                // hasher and verifying but no checksum
+                options_.verbose > 2 && std::cerr << "No checksum.  Line " << lineCount_ << std::endl;
                 toSave = false;
-                parser.options_.verbose > 2 && std::cerr << "No hasher but supposed to verify" << std::endl;
-                throw codebundler::CodeBundlerException("No hasher but supposed to verify");
+                throw codebundler::ChecksumMismatchException(filename_, checksum_, calculatedChecksum);
             }
         } else {
 
-            // 1 x x x
-            if (parser.checksum_.empty()) {
+            // 1 1 x x
+            calculatedChecksum = hasher_(fileContent);
+            bool match = (calculatedChecksum == checksum_);
 
-                // 1 0 x x
-                if (parser.options_.verify) {
+            if (!match) {
 
-                    // 1 0 x 1
-                    // hasher and verifying but no checksum
-                    parser.options_.verbose > 2 && std::cerr << "No checksum.  Line " << parser.lineCount_ << std::endl;
+                // 1 1 0 x
+                if (options_.verify) {
+
+                    // 1 1 0 1
+                    // verifying but checksum doesn't match
                     toSave = false;
-                    throw codebundler::ChecksumMismatchException(parser.filename_, parser.checksum_, calculatedChecksum);
-                }
-            } else {
-
-                // 1 1 x x
-                calculatedChecksum = parser.hasher_(fileContent);
-                bool match = (calculatedChecksum == parser.checksum_);
-
-                if (!match) {
-
-                    // 1 1 0 x
-                    if (parser.options_.verify) {
-
-                        // 1 1 0 1
-                        // verifying but checksum doesn't match
-                        toSave = false;
-                        if (parser.options_.verbose > 2) {
-                            std::cerr << "Verifying but checksum mismatch\n"
-                                         "  Expected:   "
-                                      << parser.checksum_ << "\n"
-                                                             "  Calculated: "
-                                      << calculatedChecksum << std::endl;
-                        }
-                        throw codebundler::ChecksumMismatchException(parser.filename_, parser.checksum_, calculatedChecksum);
+                    if (options_.verbose > 2) {
+                        std::cerr << "Verifying but checksum mismatch\n"
+                                     "  Expected:   "
+                                  << checksum_ << "\n"
+                                                         "  Calculated: "
+                                  << calculatedChecksum << std::endl;
                     }
+                    throw codebundler::ChecksumMismatchException(filename_, checksum_, calculatedChecksum);
                 }
             }
         }
+    }
 
-        parser.options_.verbose > 2 && std::cerr << "  Saving file: '" << filepath << "'" << std::endl;
+    options_.verbose > 2 && std::cerr << "  Saving file: '" << filepath << "'" << std::endl;
 
-        // Create parent directories if they don't exist
-        if (!parser.options_.trialRun && filepath.has_parent_path()) {
-            parser.options_.verbose > 1 && std::cerr << "  Creating directories: " << filepath.parent_path() << std::endl;
-            std::filesystem::create_directories(filepath.parent_path());
-        }
+    // Create parent directories if they don't exist
+    if (!options_.trialRun && filepath.has_parent_path()) {
+        options_.verbose > 1 && std::cerr << "  Creating directories: " << filepath.parent_path() << std::endl;
+        std::filesystem::create_directories(filepath.parent_path());
+    }
 
-        // Open file in binary mode to write content correctly
-        std::ofstream fileStream;
-        fileStream.exceptions(std::ios::badbit | std::ios::failbit); // Throw exceptions on failure
-        parser.options_.verbose > 2 && std::cerr << "  Opening file for writing: " << filepath << std::endl;
-        if (parser.options_.trialRun) {
-            parser.options_.verbose > 2 && std::cerr << "  Trial run: file not actually written." << std::endl;
+    // Open file in binary mode to write content correctly
+    std::ofstream fileStream;
+    fileStream.exceptions(std::ios::badbit | std::ios::failbit); // Throw exceptions on failure
+    options_.verbose > 2 && std::cerr << "  Opening file for writing: " << filepath << std::endl;
+    if (options_.trialRun) {
+        options_.verbose > 2 && std::cerr << "  Trial run: file not actually written." << std::endl;
+    } else {
+        fileStream.open(filepath, std::ios::out | std::ios::trunc);
+
+        fileStream.write(fileContent.data(), fileContent.size());
+        fileStream.close(); // Close explicitly after write
+        options_.verbose > 2 && std::cerr << "  File saved successfully: '" << filename_ << "'" << std::endl;
+    }
+
+    // Reset state for the next file
+    filename_.clear();
+    checksum_.clear();
+    lines_.clear();
+}
+
+void BundleParser::skip(const InputType& input)
+{
+    if (options_.verbose > 2) {
+        if (input) {
+            std::cerr << "action: skip -> Skipping line: '" << input.value() << "'" << std::endl;
         } else {
-            fileStream.open(filepath, std::ios::out | std::ios::trunc);
-
-            fileStream.write(fileContent.data(), fileContent.size());
-            fileStream.close(); // Close explicitly after write
-            parser.options_.verbose > 2 && std::cerr << "  File saved successfully: '" << parser.filename_ << "'" << std::endl;
+            std::cerr << "action: skip (on EOF)" << std::endl;
         }
+    }
+    // No actual state change needed for skipping
+}
 
-        // Reset state for the next file
-        parser.filename_.clear();
-        parser.checksum_.clear();
-        parser.lines_.clear();
-    };
+void BundleParser::done(const InputType& /*input*/)
+{
+    options_.verbose > 2 && std::cerr << "action: done" << std::endl;
+    // Final actions could happen here if needed, e.g., saving the last file if EOF acts as implicit separator
+    // The current state machine seems to handle saveFile *before* transitioning based on EOF
+}
 
-const std::function<void(const InputType&, BundleParser&)> BundleParser::skip =
-    [](const InputType& input, BundleParser& parser) {
-        if (parser.options_.verbose > 2) {
-            if (input) {
-                std::cerr << "action: skip -> Skipping line: '" << input.value() << "'" << std::endl;
-            } else {
-                std::cerr << "action: skip (on EOF)" << std::endl;
-            }
-        }
-        // No actual state change needed for skipping
-    };
+void BundleParser::errorMissingFilename(const InputType& /*input*/)
+{
+    options_.verbose > 2 && std::cerr << "action: errorMissingFilename" << std::endl;
+    throw codebundler::BundleFormatException("Missing filename.");
+}
 
-const std::function<void(const InputType&, BundleParser&)> BundleParser::done =
-    [](const InputType& /*input*/, BundleParser& parser) {
-        parser.options_.verbose > 2 && std::cerr << "action: done" << std::endl;
-        // Final actions could happen here if needed, e.g., saving the last file if EOF acts as implicit separator
-        // The current state machine seems to handle saveFile *before* transitioning based on EOF
-    };
-
-const std::function<void(const InputType&, BundleParser&)> BundleParser::errorMissingFilename =
-    [](const InputType& /*input*/, BundleParser& parser) {
-        parser.options_.verbose > 2 && std::cerr << "action: errorMissingFilename" << std::endl;
-        throw codebundler::BundleFormatException("Missing filename.");
-    };
-
-const std::function<void(const InputType&, BundleParser&)> BundleParser::errorBadFormat =
-    [](const InputType& /*input*/, BundleParser& parser) {
-        parser.options_.verbose > 2 && std::cerr << "action: errorBadFormat" << std::endl;
-        throw codebundler::BundleFormatException("Bad format.");
-    };
-
-// ---------------------------------------------------------------------
-const std::vector<Transition> BundleParser::transitions = {
-    // currentState                       predicate               action                 nextState
-    { ParserState::READ_SEPARATOR, BundleParser::always, BundleParser::rememberSeparator, ParserState::EXPECT_FILENAME_OR_COMMENT },
-
-    { ParserState::EXPECT_FILENAME_OR_COMMENT, BundleParser::isFilename, BundleParser::rememberFilename, ParserState::EXPECT_CHECKSUM_OR_CONTENT },
-    { ParserState::EXPECT_FILENAME_OR_COMMENT, BundleParser::isChecksum, BundleParser::errorMissingFilename, ParserState::DONE },
-    { ParserState::EXPECT_FILENAME_OR_COMMENT, BundleParser::always, BundleParser::skip, ParserState::IN_COMMENT }, // If not filename, assume comment start
-
-    { ParserState::IN_COMMENT, BundleParser::isSeparator, BundleParser::skip, ParserState::EXPECT_FILENAME }, // End comment on separator
-    { ParserState::IN_COMMENT, BundleParser::isEOF, BundleParser::done, ParserState::DONE }, // EOF ends comment block and parsing
-    { ParserState::IN_COMMENT, BundleParser::always, BundleParser::skip, ParserState::IN_COMMENT }, // Continue skipping comment lines
-
-    { ParserState::EXPECT_CHECKSUM_OR_CONTENT, BundleParser::isChecksum, BundleParser::rememberChecksum, ParserState::IN_CONTENT },
-    { ParserState::EXPECT_CHECKSUM_OR_CONTENT, BundleParser::isSeparator, BundleParser::saveFile, ParserState::EXPECT_FILENAME }, // Empty content block, save (likely nothing), expect next file
-    { ParserState::EXPECT_CHECKSUM_OR_CONTENT, BundleParser::isEOF, BundleParser::errorBadFormat, ParserState::DONE }, // End of file after filename (empty content)
-    { ParserState::EXPECT_CHECKSUM_OR_CONTENT, BundleParser::always, BundleParser::rememberContentLine, ParserState::IN_CONTENT }, // If not checksum/sep/EOF, assume content
-
-    { ParserState::IN_CONTENT, BundleParser::isSeparator, BundleParser::saveFile, ParserState::EXPECT_FILENAME }, // End content block on separator
-    { ParserState::IN_CONTENT, BundleParser::isEOF, BundleParser::saveFile, ParserState::DONE }, // End content block on EOF
-    { ParserState::IN_CONTENT, BundleParser::always, BundleParser::rememberContentLine, ParserState::IN_CONTENT }, // Continue reading content lines
-
-    // Renamed state for clarity below
-    { ParserState::EXPECT_FILENAME, BundleParser::isFilename, BundleParser::rememberFilename, ParserState::EXPECT_CHECKSUM_OR_CONTENT },
-    { ParserState::EXPECT_FILENAME, BundleParser::isEOF, BundleParser::done, ParserState::DONE }, // Expected filename but got EOF -> Done
-    { ParserState::EXPECT_FILENAME, BundleParser::always, BundleParser::skip, ParserState::IN_COMMENT } // If not filename/EOF after separator, treat as unexpected start of comment? Or error? Assuming comment/skip.
-
-    // DONE state has no transitions out
-};
+void BundleParser::errorBadFormat(const InputType& /*input*/)
+{
+    options_.verbose > 2 && std::cerr << "action: errorBadFormat" << std::endl;
+    throw codebundler::BundleFormatException("Bad format.");
+}
 
 // --- Public Method Definition ---
 bool BundleParser::parse(const InputType& input)
 {
-
     lineCount_ += 1;
 
     if (options_.verbose > 1) {
         std::cerr << "Parsing input: " << (input ? "'" + input.value() + "'" : "EOF")
-                  << " in state: " << static_cast<int>(state_) << std::endl;
+                  << " in state: " << fsm_.getCurrentState() << std::endl;
     }
 
-    for (const auto& transition : transitions) {
-        if (transition.currentState == state_) {
-            // Evaluate predicate first
-            bool predicateResult = transition.predicate(input, *this);
-            // Verbose output moved into predicate lambdas
-
-            if (predicateResult) {
-                // Execute action
-                transition.action(input, *this);
-                // Verbose output moved into action lambdas
-
-                ParserState previousState = state_;
-                state_ = transition.nextState;
-
-                options_.verbose > 2 && std::cerr << "Transition: State " << static_cast<int>(previousState) << " -> State " << static_cast<int>(state_) << std::endl;
-                return state_ == ParserState::DONE; // Return true if parsing is finished
-            }
-            // else: predicate was false, try next transition for this state
-        }
+    // Process the event through FSM and check if a transition was found
+    bool transitioned = fsm_.process(input);
+    
+    if (!transitioned) {
+        // No valid transition found
+        options_.verbose > 2 && std::cerr << "Error: No valid transition found from state " 
+                                          << fsm_.getCurrentState() 
+                                          << " for input: " << (input ? "'" + input.value() + "'" : "EOF") 
+                                          << " line " << lineCount_ << std::endl;
+        throw std::runtime_error("Invalid state or input encountered during parsing");
     }
 
-    // If no transition matched for the current state and input
-    options_.verbose > 2 && std::cerr << "Error: No valid transition found from state " << static_cast<int>(state_) << " for input: " << (input ? "'" + input.value() + "'" : "EOF") << " line " << lineCount_ << std::endl;
-    // You might want to set state to an error state or throw
-    throw std::runtime_error("Invalid state or input encountered during parsing");
-
-    // return state_ == ParserState::DONE; // Or return false indicating error/not done
+    // Check if we're done
+    return fsm_.getCurrentState() == "DONE";
 }

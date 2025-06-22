@@ -2,6 +2,7 @@
 #define BUNDLEPARSER_HPP
 
 #include "options.hpp"
+#include "FSMgine/FSMgine.hpp"
 
 #include <filesystem>
 #include <functional>
@@ -15,26 +16,6 @@ class BundleParser;
 // Type Aliases
 using InputType = std::optional<std::string>;
 inline const InputType INPUT_EOF = std::nullopt; // Define INPUT_EOF associated with InputType
-
-// Enum for Parser State
-enum class ParserState {
-    READ_SEPARATOR,
-    EXPECT_FILENAME_OR_COMMENT,
-    EXPECT_FILENAME,
-    IN_COMMENT,
-    EXPECT_CHECKSUM_OR_CONTENT,
-    IN_CONTENT,
-    DONE
-};
-
-// Transition Struct Definition (needed for the 'transitions' member declaration)
-// Made public nested type for clarity or could be defined outside the class before BundleParser
-struct Transition {
-    ParserState currentState;
-    std::function<bool(const InputType&, BundleParser&)> predicate;
-    std::function<void(const InputType&, BundleParser&)> action;
-    ParserState nextState;
-};
 
 class BundleParser {
 public:
@@ -52,6 +33,9 @@ public:
     bool parse(const InputType& input);
 
 private:
+    // FSM for state management
+    fsmgine::FSM<InputType> fsm_;
+    
     int lineCount_ = 0;
     codebundler::Options options_;
     Hasher hasher_;
@@ -60,37 +44,27 @@ private:
     std::string checksum_;
     std::filesystem::path outputPath_;
     std::vector<std::string> lines_;
-    ParserState state_ = ParserState::READ_SEPARATOR; // In-class initializer
 
     // --- Private Helper Methods ---
-    // Declaration only
     std::string trim(const std::string& str);
 
-    // --- Static Predicates & Actions (Declarations) ---
-    // These are implementation details tied to the state machine logic.
-    // Declaring them static makes sense if they don't depend on instance state
-    // other than what's passed in (the BundleParser&).
-    // We declare the function variables here.
-    static const std::function<bool(const InputType&, BundleParser&)> always;
-    static const std::function<bool(const InputType&, BundleParser&)> isSeparator;
-    static const std::function<bool(const InputType&, BundleParser&)> isFilename;
-    static const std::function<bool(const InputType&, BundleParser&)> isChecksum;
-    static const std::function<bool(const InputType&, BundleParser&)> isEOF;
+    // --- Predicates (converted from static to member functions) ---
+    bool isAlways(const InputType& input) const { return true; }
+    bool isSeparator(const InputType& input) const;
+    bool isFilename(const InputType& input) const;
+    bool isChecksum(const InputType& input) const;
+    bool isEOF(const InputType& input) const;
 
-    static const std::function<void(const InputType&, BundleParser&)> rememberSeparator;
-    static const std::function<void(const InputType&, BundleParser&)> rememberFilename;
-    static const std::function<void(const InputType&, BundleParser&)> rememberChecksum;
-    static const std::function<void(const InputType&, BundleParser&)> rememberContentLine;
-    static const std::function<void(const InputType&, BundleParser&)> saveFile;
-    static const std::function<void(const InputType&, BundleParser&)> skip;
-    static const std::function<void(const InputType&, BundleParser&)> errorMissingFilename;
-    static const std::function<void(const InputType&, BundleParser&)> errorBadFormat;
-    static const std::function<void(const InputType&, BundleParser&)> done;
-
-    // --- State Machine Transitions (Declaration) ---
-    // Declared static const because the transitions are fixed for the class.
-    // The actual definition/initialization goes in the .cpp file.
-    static const std::vector<Transition> transitions;
+    // --- Actions (converted from static to member functions) ---
+    void rememberSeparator(const InputType& input);
+    void rememberFilename(const InputType& input);
+    void rememberChecksum(const InputType& input);
+    void rememberContentLine(const InputType& input);
+    void saveFile(const InputType& input);
+    void skip(const InputType& input);
+    void errorMissingFilename(const InputType& input);
+    void errorBadFormat(const InputType& input);
+    void done(const InputType& input);
 };
 
 #endif // BUNDLEPARSER_HPP

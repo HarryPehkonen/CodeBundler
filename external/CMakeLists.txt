@@ -22,7 +22,6 @@ else()
      message(STATUS "PicoSHA2 target already available (perhaps from parent project or previous run).")
 endif()
 
-
 # --- GoogleTest ---
 # Only fetch Google Test if testing is enabled in the parent scope
 if(CODEBUNDLER_ENABLE_TESTING)

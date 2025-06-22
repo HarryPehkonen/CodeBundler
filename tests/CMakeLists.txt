@@ -28,6 +28,7 @@ target_link_libraries(codebundler_tests PRIVATE
     GTest::gmock # Usually link both
     GTest::gtest_main
     PicoSHA2::PicoSHA2
+    FSMgine::FSMgine
 )
 
 # Add include directories for project headers

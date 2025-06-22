@@ -9,7 +9,8 @@ add_executable(codebundler
 
 # Link required libraries
 # PicoSHA2 is header-only, but the INTERFACE target handles include directories
-target_link_libraries(codebundler PRIVATE PicoSHA2::PicoSHA2)
+# FSMgine provides the state machine functionality
+target_link_libraries(codebundler PRIVATE PicoSHA2::PicoSHA2 FSMgine::FSMgine)
 
 target_include_directories(codebundler PRIVATE ${PROJECT_SOURCE_DIR}/include)
 
