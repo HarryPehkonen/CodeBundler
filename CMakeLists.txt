@@ -12,7 +12,6 @@ option(CODEBUNDLER_ENABLE_TESTING "Build unit tests" ON)
 option(CODEBUNDLER_INSTALL "Enable installation" ON)
 
 # --- Find Required Packages ---
-find_package(Threads REQUIRED)
 find_package(FSMgine REQUIRED)
 
 # --- Include subdirectories ---
