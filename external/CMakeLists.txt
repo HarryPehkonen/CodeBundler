@@ -1,5 +1,31 @@
 include(FetchContent)
 
+# --- FSMgine ---
+# Try to find FSMgine installed on the system first
+find_package(FSMgine QUIET)
+
+if(NOT FSMgine_FOUND)
+    message(STATUS "FSMgine not found on system, fetching from GitHub...")
+    FetchContent_Declare(
+        FSMgine
+        GIT_REPOSITORY https://github.com/HarryPehkonen/FSMgine.git
+        GIT_TAG        main
+    )
+    # Only build single-threaded variant (we don't need multi-threaded)
+    set(FSMGINE_BUILD_MULTITHREADED OFF CACHE BOOL "Disable multi-threaded FSMgine build")
+    set(FSMGINE_BUILD_SINGLETHREADED ON CACHE BOOL "Enable single-threaded FSMgine build")
+
+    FetchContent_MakeAvailable(FSMgine)
+
+    # Create the namespaced alias that would normally be created during installation
+    if(TARGET FSMgine AND NOT TARGET FSMgine::FSMgine)
+        add_library(FSMgine::FSMgine ALIAS FSMgine)
+        message(STATUS "FSMgine fetched and built from source. Created FSMgine::FSMgine alias.")
+    endif()
+else()
+    message(STATUS "Using system-installed FSMgine from: ${FSMgine_DIR}")
+endif()
+
 # --- PicoSHA2 ---
 # Option 1: Use FetchContent directly if CMake > 3.11 (which we require anyway)
 FetchContent_Declare(
