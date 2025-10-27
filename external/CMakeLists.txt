@@ -22,8 +22,19 @@ if(NOT FSMgine_FOUND)
         add_library(FSMgine::FSMgine ALIAS FSMgine)
         message(STATUS "FSMgine fetched and built from source. Created FSMgine::FSMgine alias.")
     endif()
+
+    # NOTE: FSMgine will be installed along with codebundler because it's built via FetchContent.
+    # However, since FSMgine is statically linked, these files are not needed to run codebundler:
+    # - /usr/local/lib/libFSMgine.a
+    # - /usr/local/include/FSMgine/*.hpp
+    # - /usr/local/lib/cmake/FSMgine/*.cmake
+    # They are only useful if building other projects that use FSMgine.
 else()
     message(STATUS "Using system-installed FSMgine from: ${FSMgine_DIR}")
+    # Make the imported target global so it's visible in other subdirectories (src, tests)
+    if(TARGET FSMgine::FSMgine)
+        set_target_properties(FSMgine::FSMgine PROPERTIES IMPORTED_GLOBAL TRUE)
+    endif()
 endif()
 
 # --- PicoSHA2 ---
