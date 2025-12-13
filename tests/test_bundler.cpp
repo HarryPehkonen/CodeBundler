@@ -152,6 +152,47 @@ TEST(BundlerTest, ConstructorEmptySeparator)
     EXPECT_THROW(Bundler bundler(options), std::invalid_argument);
 }
 
+// Test that demonstrates the issue: readFileLines fails on directories
+TEST(UtilitiesTest, ReadFileLinesFailsOnDirectory)
+{
+    using namespace codebundler;
+
+    // Create a temporary directory
+    std::filesystem::path temp_dir = std::filesystem::temp_directory_path() / "codebundler_dir_test";
+    std::filesystem::create_directories(temp_dir);
+
+    // Trying to read a directory as a file should throw
+    EXPECT_THROW(utilities::readFileLines(temp_dir), FileIOException);
+
+    // Cleanup
+    std::filesystem::remove_all(temp_dir);
+}
+
+// Integration test: bundler should skip directories gracefully
+TEST_F(BundlerGitTest, BundleSkipsDirectories)
+{
+    using namespace codebundler;
+
+    // Create an empty directory
+    std::filesystem::create_directory(test_repo_path / "empty_dir");
+
+    // Manually add a file that lists this directory (simulating git ls-files returning it)
+    // Since we can't easily make git ls-files return a directory, we'll test this
+    // by verifying the bundler can handle it if it encounters one
+
+    // For now, just verify that if a directory exists in the repo, it doesn't break bundling
+    Options options;
+    options.verbose = 1;
+    Bundler bundler(options);
+    std::stringstream output;
+
+    // This should work - bundler will only process git-tracked files
+    ASSERT_NO_THROW(bundler.bundleToStream(output));
+
+    // The real test is in test_utilities - checking that directories cause an exception
+    // The fix will make the bundler check for directories before calling readFileLines
+}
+
 // Add more tests:
 // - Bundling an empty repository
 // - Bundling when git command fails (might need mocking or more complex setup)

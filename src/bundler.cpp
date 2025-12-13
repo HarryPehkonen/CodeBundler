@@ -88,6 +88,15 @@ void Bundler::writeFileEntry(std::ostream& outputStream, const std::string& file
 {
     // Use filesystem::path for potentially better path handling, but keep string for git output
     std::filesystem::path fsPath(filePath);
+
+    // Skip directories (e.g., gitlinks/submodules tracked by git ls-files)
+    if (std::filesystem::is_directory(fsPath)) {
+        if (m_options.verbose > 0) {
+            std::cerr << "Skipping directory: " << filePath << std::endl;
+        }
+        return;
+    }
+
     std::vector<std::string> fileLines = utilities::readFileLines(fsPath);
     if (utilities::fileContainsDelimiter(fileLines, m_options.separator)) {
         throw CodeBundlerException("File contains the bundle separator, which is not allowed.");
