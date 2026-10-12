@@ -62,7 +62,21 @@ if(CODEBUNDLER_INSTALL)
     install(TARGETS codebundler
             RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
     )
-    install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/docs/codebundler.1
+    # Man page: generated at build time from man/codebundler.1.scd (scdoc).
+    # Single source of truth — no committed generated .1 copy.
+    find_program(SCDOC_EXE NAMES scdoc)
+    if(NOT SCDOC_EXE)
+        message(FATAL_ERROR "scdoc not found: needed to build the man page for installation (disable CODEBUNDLER_INSTALL for a no-pack build)")
+    endif()
+    add_custom_command(
+        OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/codebundler.1
+        COMMAND ${SCDOC_EXE} < ${CMAKE_CURRENT_SOURCE_DIR}/man/codebundler.1.scd
+                               > ${CMAKE_CURRENT_BINARY_DIR}/codebundler.1
+        DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/man/codebundler.1.scd
+        COMMENT "Generating codebundler.1 with scdoc"
+    )
+    add_custom_target(manpage ALL DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/codebundler.1)
+    install(FILES ${CMAKE_CURRENT_BINARY_DIR}/codebundler.1
             DESTINATION ${CMAKE_INSTALL_MANDIR}/man1
     )
     message(STATUS "Installation enabled to prefix: ${CMAKE_INSTALL_PREFIX}")
