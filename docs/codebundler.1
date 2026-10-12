@@ -1,0 +1,76 @@
+.\" Man page for codebundler. Mirrors the man page shipped in the published
+.\" 1.0.0 deb (generated there by scdoc); here it is plain roff so it can be
+.\" committed and installed straight to ${CMAKE_INSTALL_MANDIR}/man1.
+.TH "CODEBUNDLER" "1" "2026-10-12" "CodeBundler 1.0.0" "User Commands"
+.SH NAME
+codebundler \- bundle source files into one shareable artifact
+.SH SYNOPSIS
+.B codebundler
+.B bundle
+.I [output_file] [options]
+.PP
+.B codebundler
+.B unbundle
+.I [input_file] [output_dir] [options]
+.SH DESCRIPTION
+.B codebundler
+bundles the tracked files of a project into a single artifact (with SHA256
+checksums per file) so it can be shared as one file — for example, pasted to
+an AI assistant.
+.B unbundle
+verifies the checksums and restores the file tree.
+.PP
+Bundling writes to stdout if no output file is given; unbundling reads from
+stdin if no input file is given and extracts to the current directory if no
+output directory is given. The separator is detected automatically from the
+first line of a bundle.
+.SH COMMANDS
+.TP
+.B bundle
+.I [output_file]
+Bundle the tracked files of the current project.
+.TP
+.B unbundle
+.I [input_file] [output_dir]
+Extract files from a bundle, verifying SHA256 checksums.
+.SH BUNDLE OPTIONS
+.TP
+.B \-\-separator
+.I <sep>
+Use a custom separator string (default "========= BOUNDARY ==========").
+.TP
+.B \-\-description
+.I <desc>
+Add an optional description to the bundle header.
+.SH UNBUNDLE OPTIONS
+.TP
+.B \-\-no\-verify
+Disable SHA256 checksum verification.
+.TP
+.B \-\-trial\-run
+Perform a trial run without writing files.
+.SH OPTIONS
+.TP
+.B \-v\fR, \fB\-\-verbose
+Enable verbose output (repeat for more detail).
+.TP
+.B \-h\fR, \fB\-\-help
+Print usage and exit.
+.SH EXAMPLES
+Bundle the current repository to a file and restore it elsewhere:
+.PP
+.RS
+codebundler bundle /tmp/project.bundle
+.br
+cd /elsewhere && codebundler unbundle /tmp/project.bundle .
+.RE
+.PP
+Pipe through stdin/stdout:
+.PP
+.RS
+codebundler bundle | ssh host codebundler unbundle
+.RE
+.SH SEE ALSO
+https://github.com/HarryPehkonen/CodeBundler
+.SH AUTHORS
+Harri Pehkonen <harry.pehkonen@gmail.com>

@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.14)
-project(CodeBundler LANGUAGES CXX)
+project(CodeBundler VERSION 1.0.0 LANGUAGES CXX)
 
 # --- Standard C++ Settings ---
 set(CMAKE_CXX_STANDARD 17)
@@ -10,6 +10,10 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 option(CODEBUNDLER_ENABLE_FORMATTING "Format code with clang-format target" ON)
 option(CODEBUNDLER_ENABLE_TESTING "Build unit tests" ON)
 option(CODEBUNDLER_INSTALL "Enable installation" ON)
+# Packaging builds REQUIRE the system FSMgine (fail loudly instead of
+# network-fetching a moving tag). Regular developer builds keep the fallback.
+option(CODEBUNDLER_REQUIRE_SYSTEM_FSMGINE
+       "Fail configure if the system FSMgine is not found (used by package builds)" OFF)
 
 # --- Include subdirectories ---
 add_subdirectory(external) # Process dependencies first
@@ -58,9 +62,19 @@ if(CODEBUNDLER_INSTALL)
     install(TARGETS codebundler
             RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
     )
+    install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/docs/codebundler.1
+            DESTINATION ${CMAKE_INSTALL_MANDIR}/man1
+    )
     message(STATUS "Installation enabled to prefix: ${CMAKE_INSTALL_PREFIX}")
 else()
     message(STATUS "Installation disabled.")
+endif()
+
+# --- Packaging (CPack) ---
+# Included at the very END: CPack consumes the install rules, so anything
+# installed after this include would silently miss the packages.
+if(CODEBUNDLER_INSTALL)
+    include(cmake/CPack.cmake)
 endif()
 
 message(STATUS "CodeBundler project configuration complete.")

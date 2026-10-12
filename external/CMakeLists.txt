@@ -1,7 +1,14 @@
 include(FetchContent)
 
 # --- FSMgine ---
-# Try to find FSMgine installed on the system first
+# Try to find FSMgine installed on the system first.
+# Package builds set CODEBUNDLER_REQUIRE_SYSTEM_FSMGINE=ON: fail loudly here
+# rather than silently network-fetching a moving ref, so packaged artifacts are
+# deterministic. Developer builds keep the FetchContent fallback.
+if(CODEBUNDLER_REQUIRE_SYSTEM_FSMGINE)
+    find_package(FSMgine REQUIRED)
+endif()
+
 find_package(FSMgine QUIET)
 
 if(NOT FSMgine_FOUND)
@@ -9,7 +16,9 @@ if(NOT FSMgine_FOUND)
     FetchContent_Declare(
         FSMgine
         GIT_REPOSITORY https://github.com/HarryPehkonen/FSMgine.git
-        GIT_TAG        main
+        # Pinned to a tag (v2.2.0, current as of 2026-10-12) instead of main,
+        # so the fallback build is reproducible. Bump deliberately.
+        GIT_TAG        v2.2.0
     )
     # Only build single-threaded variant (we don't need multi-threaded)
     set(FSMGINE_BUILD_MULTITHREADED OFF CACHE BOOL "Disable multi-threaded FSMgine build")
