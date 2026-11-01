@@ -99,9 +99,30 @@ test: a package that installs nowhere else installs there.
   `1.fc44`. dnf compares version before release, so `1.0.1-1` upgrades
   `1.0.0-1.fc44` normally; the repo path (`rpm/fedora/44/x86_64`) is what
   identifies the target distribution, not the file name.
+* **Rebuilding without a version bump needs a release bump.** The pool keeps
+  superseded packages installable, so republishing different content under the
+  same name-version-release is the one thing that must not happen: a client's
+  cached checksum would describe a file it no longer receives. Rebuild with a
+  bumped release instead:
+
+  ```bash
+  cpack -G RPM --config build-pkg/CPackConfig.cmake -B build-pkg/pkgs \
+        -D CPACK_RPM_PACKAGE_RELEASE=2
+  # .deb equivalent: -D CPACK_DEBIAN_PACKAGE_RELEASE=2
+  ```
+
+  That is how `codebundler-1.0.1-2` came to exist: 1.0.1-1 was published, then
+  its RPM `Description` turned out to be CPack boilerplate (see below), so the
+  fix shipped as 1.0.1-2 rather than as a re-cut of 1.0.1-1.
 
 ## Pitfalls worth not re-learning
 
+* **CPack's RPM `Description` defaults to its own boilerplate** — "This is an
+  installer created using CPack (https://cmake.org). No additional installation
+  instructions provided." — which is what `dnf info codebundler` shows a user.
+  `CPACK_PACKAGE_DESCRIPTION` covers the `.deb`; the RPM generator needs
+  `CPACK_RPM_PACKAGE_DESCRIPTION` set as well. `scripts/package.sh` asserts the
+  boilerplate is gone.
 * **Do not check rpm signatures with `rpm -qp --qf '%{SIGPGP:pgpsig}'`.** Header
   signatures (EdDSA, which is what these packages use) do not appear in those
   tags, so every signed package looks unsigned. Use

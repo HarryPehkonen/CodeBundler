@@ -81,6 +81,11 @@ if rpm -qlp "$rpm" | grep -qE '^/usr/share/man$|^/usr/share/man/man1$'; then
     fail "rpm ships /usr/share/man directories (conflicts with Fedora's filesystem package)"
 fi
 rpm -qp --qf '%{LICENSE}\n' "$rpm" | grep -qi unlicense || fail "rpm License is not Unlicense"
+# CPack's default Description is "This is an installer created using CPack ...",
+# which is what users see in `dnf info`. cmake/CPack.cmake overrides it.
+if rpm -qp --qf '%{DESCRIPTION}' "$rpm" | grep -q 'created using CPack'; then
+    fail "rpm Description is CPack boilerplate (set CPACK_RPM_PACKAGE_DESCRIPTION)"
+fi
 rpm -Kv "$rpm" > /dev/null 2>&1 || true # unsigned at build time is expected: signing happens in publish-rpm.sh
 
 echo "== rpm packaged binary runs"

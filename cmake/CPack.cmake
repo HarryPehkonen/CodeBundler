@@ -33,6 +33,11 @@ set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS ON)           # Depends generated from ELF li
 set(CPACK_RPM_FILE_NAME RPM-DEFAULT)
 set(CPACK_RPM_PACKAGE_LICENSE "Unlicense")
 set(CPACK_RPM_PACKAGE_AUTOREQPROV ON)
+# Without this the RPM Description is CPack's own boilerplate ("This is an
+# installer created using CPack ..."), which is what `dnf info codebundler`
+# shows a user. The DEB generator reuses CPACK_PACKAGE_DESCRIPTION; the RPM one
+# does not.
+set(CPACK_RPM_PACKAGE_DESCRIPTION "${CPACK_PACKAGE_DESCRIPTION}")
 # Fedora's `filesystem` package owns /usr/share/man and /usr/share/man/man1. A
 # package that ships those directories as its own files cannot be installed at
 # all: rpm aborts the transaction with "file /usr/share/man/man1 conflicts with
