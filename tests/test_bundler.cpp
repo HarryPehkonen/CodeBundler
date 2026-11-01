@@ -12,29 +12,29 @@
 // Helper function to create dummy files and initialize a git repo
 // WARNING: This modifies the filesystem and runs git commands. Use with caution.
 // Should ideally run in a dedicated temporary test directory.
-void setup_test_git_repo(const std::filesystem::path& repo_path)
+void setup_test_git_repo(const std::filesystem::path& repo_path, bool with_binary = true)
 {
     std::filesystem::create_directories(repo_path);
     std::ofstream(repo_path / "file1.txt") << "Content of file 1.\n"; // Text file is fine with <<
 
-    // --- FIX FOR BINARY FILE ---
-    std::filesystem::create_directories(repo_path / "subdir"); // Ensure subdir exists
-    // Open in binary mode explicitly
-    std::ofstream bin_file_stream(repo_path / "subdir" / "file2.bin", std::ios::binary | std::ios::out | std::ios::trunc);
-    if (!bin_file_stream) {
-        // Fail the test setup if file cannot be opened
-        GTEST_FAIL() << "Failed to open test file for writing: " << (repo_path / "subdir/file2.bin").string();
-        return; // Prevent further execution if failed
+    if (with_binary) {
+        std::filesystem::create_directories(repo_path / "subdir"); // Ensure subdir exists
+        // Open in binary mode explicitly
+        std::ofstream bin_file_stream(repo_path / "subdir" / "file2.bin", std::ios::binary | std::ios::out | std::ios::trunc);
+        if (!bin_file_stream) {
+            // Fail the test setup if file cannot be opened
+            GTEST_FAIL() << "Failed to open test file for writing: " << (repo_path / "subdir/file2.bin").string();
+            return; // Prevent further execution if failed
+        }
+        // Use write() for precise control over binary data including nulls
+        const char data_part1[] = "Binary\0Data"; // Note: sizeof includes the *string literal's* null terminator
+        bin_file_stream.write(data_part1, sizeof(data_part1) - 1); // Write 11 bytes ('B' through 'a')
+
+        std::string data_part2(10, '\x01');
+        bin_file_stream.write(data_part2.data(), data_part2.size()); // Write the 10 '\x01' bytes
+
+        bin_file_stream.close(); // Explicit close (though destructor would handle it)
     }
-    // Use write() for precise control over binary data including nulls
-    const char data_part1[] = "Binary\0Data"; // Note: sizeof includes the *string literal's* null terminator
-    bin_file_stream.write(data_part1, sizeof(data_part1) - 1); // Write 11 bytes ('B' through 'a')
-
-    std::string data_part2(10, '\x01');
-    bin_file_stream.write(data_part2.data(), data_part2.size()); // Write the 10 '\x01' bytes
-
-    bin_file_stream.close(); // Explicit close (though destructor would handle it)
-    // --- END FIX ---
 
     // VERY basic git init and add. Assumes git is in PATH.
     // Redirect output to avoid polluting test results.
@@ -104,13 +104,24 @@ TEST_F(BundlerGitTest, BundleToStreamBasic)
     EXPECT_NE(bundleContent.find(codebundler::CHECKSUM_PREFIX), std::string::npos);
     EXPECT_NE(bundleContent.find("Content of file 1."), std::string::npos);
 
+    // file2.bin holds NUL bytes: it is binary, so it must never become an entry.
+    // Its content cannot survive a line-based format, and inlining it risks
+    // bytes that look like bundle structure (a "Filename: " line, the separator).
 #ifdef _WIN32 // Git might use backslashes on Windows
-    EXPECT_TRUE(bundleContent.find(codebundler::FILENAME_PREFIX + "subdir\\file2.bin") != std::string::npos || bundleContent.find(codebundler::FILENAME_PREFIX + "subdir/file2.bin") != std::string::npos);
+    EXPECT_EQ(bundleContent.find(codebundler::FILENAME_PREFIX + "subdir\\file2.bin"), std::string::npos);
+    EXPECT_EQ(bundleContent.find(codebundler::FILENAME_PREFIX + "subdir/file2.bin"), std::string::npos);
 #else
-    EXPECT_NE(bundleContent.find(codebundler::FILENAME_PREFIX + "subdir/file2.bin"), std::string::npos);
+    EXPECT_EQ(bundleContent.find(codebundler::FILENAME_PREFIX + "subdir/file2.bin"), std::string::npos);
 #endif
 
-    EXPECT_NE(bundleContent.find("Binary\0Data", 0, 11), std::string::npos); // Check for binary data part
+    EXPECT_EQ(bundleContent.find("Binary\0Data", 0, 11), std::string::npos); // binary content is not inlined
+
+    // ...but the skipped file is named, so nobody wonders where it went.
+#ifdef _WIN32
+    EXPECT_NE(bundleContent.find(codebundler::SKIPPED_BINARY_PREFIX + "subdir\\file2.bin"), std::string::npos);
+#else
+    EXPECT_NE(bundleContent.find(codebundler::SKIPPED_BINARY_PREFIX + "subdir/file2.bin"), std::string::npos);
+#endif
 
     // Verify checksum for file1.txt (calculate expected manually or via utility)
     std::string file1_content = "Content of file 1.\n";
@@ -191,6 +202,86 @@ TEST_F(BundlerGitTest, BundleSkipsDirectories)
 
     // The real test is in test_utilities - checking that directories cause an exception
     // The fix will make the bundler check for directories before calling readFileLines
+}
+
+TEST(UtilitiesTest, IsBinaryFileDetectsNulByte)
+{
+    using namespace codebundler;
+
+    const std::filesystem::path dir = std::filesystem::temp_directory_path() / "codebundler_binary_check";
+    std::filesystem::remove_all(dir);
+    std::filesystem::create_directories(dir);
+
+    // UTF-8 text with a non-ASCII character is still text.
+    std::ofstream(dir / "text.txt", std::ios::binary) << "plain text, utf-8: \xC3\xA9\n";
+    {
+        std::ofstream bin(dir / "data.bin", std::ios::binary);
+        bin.write("Binary\0Data", 11);
+    }
+
+    EXPECT_FALSE(utilities::isBinaryFile(dir / "text.txt"));
+    EXPECT_TRUE(utilities::isBinaryFile(dir / "data.bin"));
+    EXPECT_THROW(utilities::isBinaryFile(dir / "no_such_file"), FileIOException);
+
+    std::filesystem::remove_all(dir);
+}
+
+// The sniff window is git's: a NUL in the first 8000 bytes means binary; past
+// the window the file counts as text (git stops reading there too).
+TEST(UtilitiesTest, IsBinaryFileSniffsFirst8000Bytes)
+{
+    using namespace codebundler;
+
+    const std::filesystem::path dir = std::filesystem::temp_directory_path() / "codebundler_binary_window";
+    std::filesystem::remove_all(dir);
+    std::filesystem::create_directories(dir);
+
+    const auto write_with_nul_at = [&dir](const std::string& name, std::size_t offset) {
+        std::string content(offset, 'a');
+        content.push_back('\0');
+        content += "tail\n";
+        std::ofstream out(dir / name, std::ios::binary);
+        out.write(content.data(), static_cast<std::streamsize>(content.size()));
+    };
+
+    write_with_nul_at("nul_on_last_byte_of_window.bin", 7999); // 8000th byte
+    write_with_nul_at("nul_just_past_window.bin", 8000); // 8001st byte
+
+    EXPECT_TRUE(utilities::isBinaryFile(dir / "nul_on_last_byte_of_window.bin"));
+    EXPECT_FALSE(utilities::isBinaryFile(dir / "nul_just_past_window.bin"));
+
+    std::filesystem::remove_all(dir);
+}
+
+// A text-only repository gets no skip note at all: the note is information,
+// not boilerplate.
+TEST(BundlerTextOnlyTest, NoSkipNoteWhenNothingIsBinary)
+{
+    using namespace codebundler;
+
+    const std::filesystem::path original_cwd = std::filesystem::current_path();
+    const std::filesystem::path repo_path = std::filesystem::temp_directory_path() / "codebundler_textonly_test_repo";
+    cleanup_test_git_repo(repo_path);
+    setup_test_git_repo(repo_path, false); // no binary file in this repo
+
+    std::string bundleContent;
+    std::filesystem::current_path(repo_path);
+    try {
+        Options options;
+        Bundler bundler(options);
+        std::stringstream output;
+        bundler.bundleToStream(output);
+        bundleContent = output.str();
+    } catch (...) {
+        std::filesystem::current_path(original_cwd);
+        cleanup_test_git_repo(repo_path);
+        throw;
+    }
+    std::filesystem::current_path(original_cwd);
+    cleanup_test_git_repo(repo_path);
+
+    EXPECT_EQ(bundleContent.find(codebundler::SKIPPED_BINARY_PREFIX), std::string::npos);
+    EXPECT_NE(bundleContent.find(codebundler::FILENAME_PREFIX + "file1.txt"), std::string::npos);
 }
 
 // Add more tests:

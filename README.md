@@ -6,7 +6,11 @@ If a bundle was created by an LLM, it most likely will not contain a valid check
 ## Features and Limitation
 
 *   Handles ASCII and UTF-8.
-*   No support for binary files.
+*   Never bundles binary files. A file counts as binary when a NUL byte
+    appears in its first 8000 bytes (the same test git uses). Each skipped
+    file is named at the end of the bundle as
+    `# Skipped binary file: <path>`, so a bundle never silently drops a file
+    without saying so - and unbundle does not restore those files.
 *   Always ensures files end with a newline.
 *   Concatenates files listed by `git ls-files` into a single bundle.
 *   Uses a customizable boundary marker.
@@ -68,6 +72,7 @@ Checksum: SHA256:<sha256_hash_of_file2_content>
 <content of file2>
 <SEPARATOR>
 ...
+# Skipped binary file: <path/to/binary>     (one line per file left out, if any)
 ```
 
 ## Building

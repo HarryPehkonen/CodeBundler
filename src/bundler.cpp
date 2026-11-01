@@ -39,14 +39,21 @@ void Bundler::bundleToStream(std::ostream& outputStream, const std::string& desc
 
     writeHeader(outputStream, description);
 
+    std::vector<std::string> skippedBinaries;
     for (const auto& filePath : filesToBundle) {
         m_options.verbose > 0 && std::cerr << "Bundling: " << filePath << std::endl;
         try {
-            writeFileEntry(outputStream, filePath);
+            if (writeFileEntry(outputStream, filePath) == EntryOutcome::skippedBinary) {
+                skippedBinaries.push_back(filePath);
+            }
         } catch (const FileIOException& e) {
             std::cerr << "Error processing file '" << filePath << "': " << e.what() << ". Aborting." << std::endl;
             throw; // Re-throw to signal failure
         }
+    }
+    writeSkippedNote(outputStream, skippedBinaries);
+    if (!skippedBinaries.empty()) {
+        m_options.verbose > 0 && std::cerr << "Skipped " << skippedBinaries.size() << " binary file(s); they are named at the end of the bundle." << std::endl;
     }
     m_options.verbose > 0 && std::cerr << "Bundle creation finished." << std::endl;
 }
@@ -84,7 +91,7 @@ void Bundler::writeHeader(std::ostream& outputStream, const std::string& descrip
 /**
  * @brief Writes a single file entry (header and content) to the output stream.
  */
-void Bundler::writeFileEntry(std::ostream& outputStream, const std::string& filePath)
+Bundler::EntryOutcome Bundler::writeFileEntry(std::ostream& outputStream, const std::string& filePath)
 {
     // Use filesystem::path for potentially better path handling, but keep string for git output
     std::filesystem::path fsPath(filePath);
@@ -94,7 +101,17 @@ void Bundler::writeFileEntry(std::ostream& outputStream, const std::string& file
         if (m_options.verbose > 0) {
             std::cerr << "Skipping directory: " << filePath << std::endl;
         }
-        return;
+        return EntryOutcome::skippedDirectory;
+    }
+
+    // Skip binary files: they do not survive a line-based, separator-delimited
+    // format (the content is mangled on the way in and a restored file is not
+    // byte-identical), and arbitrary bytes can look like bundle structure.
+    if (utilities::isBinaryFile(fsPath)) {
+        if (m_options.verbose > 0) {
+            std::cerr << "Skipping binary file: " << filePath << std::endl;
+        }
+        return EntryOutcome::skippedBinary;
     }
 
     std::vector<std::string> fileLines = utilities::readFileLines(fsPath);
@@ -119,6 +136,24 @@ void Bundler::writeFileEntry(std::ostream& outputStream, const std::string& file
     // Check for stream errors after writing
     if (!outputStream) {
         throw FileIOException("Stream error occurred while writing entry for file", filePath);
+    }
+
+    return EntryOutcome::written;
+}
+
+/**
+ * @brief Writes the "left out" note: one comment line per binary file.
+ */
+void Bundler::writeSkippedNote(std::ostream& outputStream, const std::vector<std::string>& skippedBinaries)
+{
+    if (skippedBinaries.empty()) {
+        return; // nothing was left out, so there is nothing to explain
+    }
+    for (const auto& filePath : skippedBinaries) {
+        outputStream << codebundler::SKIPPED_BINARY_PREFIX << filePath << "\n";
+    }
+    if (!outputStream) {
+        throw FileIOException("Stream error occurred while writing the skipped-binary note", codebundler::SKIPPED_BINARY_PREFIX);
     }
 }
 

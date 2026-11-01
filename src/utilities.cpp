@@ -209,6 +209,35 @@ namespace utilities {
     }
 
     /**
+     * @brief Decides whether a file is binary, using git's heuristic.
+     *
+     * Reads (at most) the first 8000 bytes in binary mode and reports binary as
+     * soon as a NUL byte appears - the same test git applies when it decides
+     * whether a file is text. Nothing else is read, so the check stays cheap on
+     * large files.
+     */
+    bool isBinaryFile(const std::filesystem::path& filepath)
+    {
+        constexpr std::size_t sniffBytes = 8000;
+
+        std::ifstream fileStream(filepath, std::ios::binary);
+        if (!fileStream) {
+            throw FileIOException("Failed to open file for binary check", filepath.string());
+        }
+
+        std::array<char, sniffBytes> buffer {};
+        fileStream.read(buffer.data(), static_cast<std::streamsize>(buffer.size()));
+        const std::streamsize bytesRead = fileStream.gcount(); // short read at EOF is fine
+
+        for (std::streamsize i = 0; i < bytesRead; ++i) {
+            if (buffer[static_cast<std::size_t>(i)] == '\0') {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
      * @brief Trims leading and trailing whitespace from a string.
      * @param str The string to trim.
      * @return The trimmed string.

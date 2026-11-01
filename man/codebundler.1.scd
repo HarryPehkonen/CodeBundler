@@ -22,6 +22,14 @@ stdin if no input file is given and extracts to the current directory if no
 output directory is given. The separator is detected automatically from the
 first line of a bundle.
 
+Binary files are never bundled. A file counts as binary when a NUL byte
+appears in its first 8000 bytes - the test git itself uses - so images,
+archives, compiled objects and the like are left out instead of being copied
+in as mangled text. Each one is named at the end of the bundle on a
+"# Skipped binary file: <path>" line, which *unbundle* reads as a comment;
+those files are therefore not restored by *unbundle* and must be copied by
+other means.
+
 # COMMANDS
 
 *bundle* [output_file]

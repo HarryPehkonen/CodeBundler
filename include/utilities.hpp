@@ -73,6 +73,15 @@ namespace utilities {
     std::string trim(const std::string& str);
 
     /**
+     * @brief Decides whether a file is binary, using git's heuristic: a NUL
+     * byte within the first 8000 bytes means binary.
+     * @param filepath The path to inspect.
+     * @return true if the file should be treated as binary.
+     * @throws FileIOException If the file cannot be opened.
+     */
+    bool isBinaryFile(const std::filesystem::path& filepath);
+
+    /**
      * @brief Checks if a string starts with a specific prefix.
      * @param str The string to check.
      * @param prefix The prefix to look for.
