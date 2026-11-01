@@ -23,7 +23,7 @@ cd "$(dirname "$0")/.."
 
 fail() { echo "FAIL: $*" >&2; exit 1; }
 
-for tool in cmake cpack dpkg-deb dpkg-shlibdeps; do
+for tool in cmake cpack dpkg-deb dpkg-shlibdeps rpm rpm2cpio cpio; do
     command -v "$tool" >/dev/null 2>&1 || fail "missing tool: $tool"
 done
 
@@ -68,4 +68,24 @@ echo "== packaged binary runs"
 dpkg-deb -x "$deb" "$tmp/root"
 "$tmp/root/usr/bin/codebundler" --help > /dev/null 2>&1 || fail "packaged binary does not run"
 
-echo "PASS: package contents, Section, Depends, and smoke test all verified"
+# 6. RPM contents. The DEB checks above cannot see this: on Fedora a package that
+#    ships a directory the `filesystem` package owns is not merely untidy, it is
+#    UNINSTALLABLE (rpm aborts: "file /usr/share/man/man1 conflicts with file from
+#    package filesystem"). CPack's RPM generator lists those directories by
+#    default, so this asserts the exclusion in cmake/CPack.cmake still holds.
+echo "== rpm contents ($rpm)"
+rpm -qlp "$rpm" | sed 's/^/    /'
+rpm -qlp "$rpm" | grep -qx '/usr/bin/codebundler' || fail "rpm does not ship /usr/bin/codebundler"
+rpm -qlp "$rpm" | grep -qE '^/usr/share/man/man1/codebundler\.1(\.gz)?$' || fail "rpm does not ship the man page"
+if rpm -qlp "$rpm" | grep -qE '^/usr/share/man$|^/usr/share/man/man1$'; then
+    fail "rpm ships /usr/share/man directories (conflicts with Fedora's filesystem package)"
+fi
+rpm -qp --qf '%{LICENSE}\n' "$rpm" | grep -qi unlicense || fail "rpm License is not Unlicense"
+rpm -Kv "$rpm" > /dev/null 2>&1 || true # unsigned at build time is expected: signing happens in publish-rpm.sh
+
+echo "== rpm packaged binary runs"
+rm -rf "$tmp/rpmroot" && mkdir -p "$tmp/rpmroot"
+rpm2cpio "$rpm" | (cd "$tmp/rpmroot" && cpio -idm --quiet) || fail "could not extract the rpm"
+"$tmp/rpmroot/usr/bin/codebundler" --help > /dev/null 2>&1 || fail "rpm packaged binary does not run"
+
+echo "PASS: package contents, Section, Depends, rpm file list, and smoke tests all verified"

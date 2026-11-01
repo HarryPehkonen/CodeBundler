@@ -33,5 +33,12 @@ set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS ON)           # Depends generated from ELF li
 set(CPACK_RPM_FILE_NAME RPM-DEFAULT)
 set(CPACK_RPM_PACKAGE_LICENSE "Unlicense")
 set(CPACK_RPM_PACKAGE_AUTOREQPROV ON)
+# Fedora's `filesystem` package owns /usr/share/man and /usr/share/man/man1. A
+# package that ships those directories as its own files cannot be installed at
+# all: rpm aborts the transaction with "file /usr/share/man/man1 conflicts with
+# file from package filesystem". CPack's RPM generator lists them unless told not
+# to (the DEB generator is harmless here - dpkg treats shared directories as
+# shared), so exclude them explicitly. Asserted in scripts/package.sh.
+set(CPACK_RPM_EXCLUDE_FROM_AUTO_FILELIST_ADDITION "/usr/share/man" "/usr/share/man/man1")
 
 include(CPack)

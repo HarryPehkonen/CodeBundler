@@ -115,10 +115,24 @@ Bundler::EntryOutcome Bundler::writeFileEntry(std::ostream& outputStream, const 
     }
 
     std::vector<std::string> fileLines = utilities::readFileLines(fsPath);
+    std::string fileContent = utilities::linesToString(fileLines);
+
+    // The 8000-byte window is only a fast path: a binary can carry a long text
+    // prologue (a tar, a PDF, a container format) and put its first NUL past the
+    // window. Since the whole file is in hand by now, check all of it - one NUL
+    // is enough to make this "not text", and the format here is line-oriented
+    // text. This is deliberately stricter than git, which only sniffs the window.
+    if (fileContent.find('\0') != std::string::npos) {
+        if (m_options.verbose > 0) {
+            std::cerr << "Skipping binary file (NUL past the " << codebundler::BINARY_SNIFF_BYTES
+                      << "-byte sniff window): " << filePath << std::endl;
+        }
+        return EntryOutcome::skippedBinary;
+    }
+
     if (utilities::fileContainsDelimiter(fileLines, m_options.separator)) {
         throw CodeBundlerException("File contains the bundle separator, which is not allowed.");
     }
-    std::string fileContent = utilities::linesToString(fileLines);
     std::string checksum = utilities::calculateSHA256(fileContent);
 
     // Normalize path separators for consistency in the bundle? Optional.

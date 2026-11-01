@@ -12,6 +12,42 @@
 // Helper function to create dummy files and initialize a git repo
 // WARNING: This modifies the filesystem and runs git commands. Use with caution.
 // Should ideally run in a dedicated temporary test directory.
+// VERY basic git init, add and commit. Assumes git is in PATH.
+void git_init_and_commit(const std::filesystem::path& repo_path)
+{
+    const std::string cd_cmd = "cd \"" + repo_path.string() + "\"";
+    int ret; // Check return codes for basic sanity
+    ret = std::system((cd_cmd + " && git init -b main -q").c_str());
+    if (ret != 0)
+        GTEST_LOG_(WARNING) << "git init failed in test setup";
+    ret = std::system((cd_cmd + " && git config user.email \"test@example.com\"").c_str());
+    if (ret != 0)
+        GTEST_LOG_(WARNING) << "git config user.email failed in test setup";
+    ret = std::system((cd_cmd + " && git config user.name \"Test User\"").c_str());
+    if (ret != 0)
+        GTEST_LOG_(WARNING) << "git config user.name failed in test setup";
+    ret = std::system((cd_cmd + " && git add .").c_str());
+    if (ret != 0)
+        GTEST_LOG_(WARNING) << "git add failed in test setup";
+    // Add a commit so ls-files doesn't complain on some git versions
+    ret = std::system((cd_cmd + " && git commit -m \"Initial test commit\" -q").c_str());
+    if (ret != 0)
+        GTEST_LOG_(WARNING) << "git commit failed in test setup";
+}
+
+// Create a repo at repo_path holding exactly these files (path -> raw bytes).
+void setup_repo_with_files(const std::filesystem::path& repo_path,
+    const std::vector<std::pair<std::string, std::string>>& files)
+{
+    for (const auto& [rel_path, bytes] : files) {
+        const std::filesystem::path full_path = repo_path / rel_path;
+        std::filesystem::create_directories(full_path.parent_path());
+        std::ofstream out(full_path, std::ios::binary | std::ios::trunc);
+        out.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
+    }
+    git_init_and_commit(repo_path);
+}
+
 void setup_test_git_repo(const std::filesystem::path& repo_path, bool with_binary = true)
 {
     std::filesystem::create_directories(repo_path);
@@ -36,32 +72,35 @@ void setup_test_git_repo(const std::filesystem::path& repo_path, bool with_binar
         bin_file_stream.close(); // Explicit close (though destructor would handle it)
     }
 
-    // VERY basic git init and add. Assumes git is in PATH.
-    // Redirect output to avoid polluting test results.
-    std::string cd_cmd = "cd \"" + repo_path.string() + "\"";
-    int ret; // Check return codes for basic sanity
-    ret = std::system((cd_cmd + " && git init -b main -q").c_str());
-    if (ret != 0)
-        GTEST_LOG_(WARNING) << "git init failed in test setup";
-    ret = std::system((cd_cmd + " && git config user.email \"test@example.com\"").c_str());
-    if (ret != 0)
-        GTEST_LOG_(WARNING) << "git config user.email failed in test setup";
-    ret = std::system((cd_cmd + " && git config user.name \"Test User\"").c_str());
-    if (ret != 0)
-        GTEST_LOG_(WARNING) << "git config user.name failed in test setup";
-    ret = std::system((cd_cmd + " && git add .").c_str());
-    if (ret != 0)
-        GTEST_LOG_(WARNING) << "git add failed in test setup";
-    // Add a commit so ls-files doesn't complain on some git versions
-    ret = std::system((cd_cmd + " && git commit -m \"Initial test commit\" -q").c_str());
-    if (ret != 0)
-        GTEST_LOG_(WARNING) << "git commit failed in test setup";
+    git_init_and_commit(repo_path);
 }
 void cleanup_test_git_repo(const std::filesystem::path& repo_path)
 {
     std::error_code ec;
     std::filesystem::remove_all(repo_path, ec);
     // Ignore errors during cleanup
+}
+
+// Bundle the repository at repo_path and return the bundle text. Bundling
+// shells out to `git ls-files`, so the bundler has to run with that repository
+// as the working directory.
+std::string bundle_repo(const std::filesystem::path& repo_path)
+{
+    const std::filesystem::path original_cwd = std::filesystem::current_path();
+    std::string bundleContent;
+    std::filesystem::current_path(repo_path);
+    try {
+        codebundler::Options options;
+        codebundler::Bundler bundler(options);
+        std::stringstream output;
+        bundler.bundleToStream(output);
+        bundleContent = output.str();
+    } catch (...) {
+        std::filesystem::current_path(original_cwd);
+        throw;
+    }
+    std::filesystem::current_path(original_cwd);
+    return bundleContent;
 }
 
 // Test fixture for bundler tests that need a git repo
@@ -259,29 +298,41 @@ TEST(BundlerTextOnlyTest, NoSkipNoteWhenNothingIsBinary)
 {
     using namespace codebundler;
 
-    const std::filesystem::path original_cwd = std::filesystem::current_path();
     const std::filesystem::path repo_path = std::filesystem::temp_directory_path() / "codebundler_textonly_test_repo";
     cleanup_test_git_repo(repo_path);
     setup_test_git_repo(repo_path, false); // no binary file in this repo
 
-    std::string bundleContent;
-    std::filesystem::current_path(repo_path);
-    try {
-        Options options;
-        Bundler bundler(options);
-        std::stringstream output;
-        bundler.bundleToStream(output);
-        bundleContent = output.str();
-    } catch (...) {
-        std::filesystem::current_path(original_cwd);
-        cleanup_test_git_repo(repo_path);
-        throw;
-    }
-    std::filesystem::current_path(original_cwd);
+    const std::string bundleContent = bundle_repo(repo_path);
     cleanup_test_git_repo(repo_path);
 
     EXPECT_EQ(bundleContent.find(codebundler::SKIPPED_BINARY_PREFIX), std::string::npos);
     EXPECT_NE(bundleContent.find(codebundler::FILENAME_PREFIX + "file1.txt"), std::string::npos);
+}
+
+// The 8000-byte window is a fast path, not the whole rule. A binary whose NUL
+// sits past the window (a tar or a PDF with a long text prologue) also has no
+// business being inlined: the bundle is a line-oriented text format, so any NUL
+// that reaches it means raw bytes are being carried as if they were text.
+TEST(BundlerLateNulTest, SkipsFileWithNulPastTheSniffWindow)
+{
+    using namespace codebundler;
+
+    const std::filesystem::path repo_path = std::filesystem::temp_directory_path() / "codebundler_late_nul_test_repo";
+    cleanup_test_git_repo(repo_path);
+    setup_repo_with_files(repo_path,
+        { { "notes.txt", "ordinary text\n" },
+            { "archives/late_nul.tar", std::string(9000, 'A') + std::string("\0binary junk\0", 14) + std::string(200, '\x7f') } });
+
+    const std::string bundleContent = bundle_repo(repo_path);
+    cleanup_test_git_repo(repo_path);
+
+    EXPECT_EQ(bundleContent.find(codebundler::FILENAME_PREFIX + "archives/late_nul.tar"), std::string::npos);
+    EXPECT_NE(bundleContent.find(codebundler::SKIPPED_BINARY_PREFIX + "archives/late_nul.tar"), std::string::npos);
+    EXPECT_NE(bundleContent.find(codebundler::FILENAME_PREFIX + "notes.txt"), std::string::npos);
+
+    // Nothing binary gets through at all: the bundle is NUL-free, whatever the
+    // tracked files hold.
+    EXPECT_EQ(bundleContent.find('\0'), std::string::npos);
 }
 
 // Add more tests:

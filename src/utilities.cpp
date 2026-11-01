@@ -1,4 +1,5 @@
 #include "utilities.hpp"
+#include "constants.hpp"
 #include "exceptions.hpp"
 #include <array> // For buffer in executeCommand
 #include <cstdio> // For popen, pclose
@@ -218,7 +219,7 @@ namespace utilities {
      */
     bool isBinaryFile(const std::filesystem::path& filepath)
     {
-        constexpr std::size_t sniffBytes = 8000;
+        constexpr std::size_t sniffBytes = codebundler::BINARY_SNIFF_BYTES;
 
         std::ifstream fileStream(filepath, std::ios::binary);
         if (!fileStream) {

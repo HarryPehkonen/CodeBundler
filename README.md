@@ -3,12 +3,40 @@ Bundles code tracked by Git into a single file for easier sharing, especially wi
 
 If a bundle was created by an LLM, it most likely will not contain a valid checksum.  In this case, the `--no-verify` option can be used to unbundle without checksum verification.
 
+## Install
+
+Published from a self-hosted, signed repository for my own fleet — browse it at
+https://pehkonen.dev/packages/. On Debian / Raspberry Pi OS:
+
+```bash
+curl -fsSL https://pehkonen.dev/repo.asc | sudo tee /etc/apt/keyrings/pehkonen.dev.asc >/dev/null
+echo "deb [signed-by=/etc/apt/keyrings/pehkonen.dev.asc] https://apt.pehkonen.dev trixie main" \
+  | sudo tee /etc/apt/sources.list.d/pehkonen.dev.list
+sudo apt update
+sudo apt install codebundler
+```
+
+On Fedora / Nobara:
+
+```bash
+sudo dnf config-manager addrepo --from-repofile=https://rpm.pehkonen.dev/fedora/pehkonen.repo
+sudo dnf install codebundler
+```
+
+Either package installs `/usr/bin/codebundler` plus the man page, so
+`man codebundler` works after installing. To build the same `.deb`/`.rpm`
+yourself, see [Building](#building); `scripts/package.sh` is the packaging gate
+and `PACKAGING.md` documents the release flow.
+
 ## Features and Limitation
 
 *   Handles ASCII and UTF-8.
-*   Never bundles binary files. A file counts as binary when a NUL byte
-    appears in its first 8000 bytes (the same test git uses). Each skipped
-    file is named at the end of the bundle as
+*   Never bundles binary files. A file is binary when a NUL byte appears in
+    its first 8000 bytes (the window git uses) and the rest of the content is
+    checked too, so a NUL anywhere counts - which also catches a binary hiding
+    behind a long text prologue. UTF-8 is unaffected: no byte of a multi-byte
+    UTF-8 sequence is ever NUL, so accented text, CJK, emoji and a UTF-8 BOM all
+    stay text. Each skipped file is named at the end of the bundle as
     `# Skipped binary file: <path>`, so a bundle never silently drops a file
     without saying so - and unbundle does not restore those files.
 *   Always ensures files end with a newline.

@@ -30,3 +30,9 @@
 *.exe
 *.out
 *.app
+
+# Build outputs
+# build/ holds the dev tree the packaging + test gates configure; build-*/
+# is what the sanitizer/tidy variants use. Neither belongs in a commit.
+build/
+build-*/
