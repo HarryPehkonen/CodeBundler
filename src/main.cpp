@@ -28,6 +28,7 @@ Commands:
                                (Separator is detected automatically from the first line).
     --no-verify                Disable SHA256 checksum verification during unbundling.
     --trial-run                Perform a trial run without writing files.
+    --output-dir <dir>         Extract into <dir> (same as the output_dir argument).
     -v, --verbose              Enable verbose output (1-4 levels).
 
 Options:
