@@ -41,6 +41,18 @@ and `PACKAGING.md` documents the release flow.
     without saying so - and unbundle does not restore those files.
 *   Always ensures files end with a newline.
 *   Concatenates files listed by `git ls-files` into a single bundle.
+*   Narrows a bundle when a whole tree is too big to send: `--exclude` leaves out
+    what a pattern matches, `--include` names what to keep - naming even one
+    include pattern switches the bundle to include mode - and a project records
+    the rules it always wants in `.codebundlerignore`. Patterns are
+    gitignore-flavoured globs; see the PATTERNS section of `man codebundler`.
+*   A narrowed bundle still says what it does not carry: each rule that left
+    files out is counted at the end of the bundle as
+    `# Excluded: <n> files (<rule>)`, which unbundle reads as a comment, exactly
+    as it does the binary-file note.
+*   Answers the size question before anything is pasted somewhere: `--list`
+    prints one line per file with its byte count, then the totals and an
+    approximate token count, and writes no bundle at all.
 *   Uses a customizable boundary marker.
 *   Includes a checksum for each file within the bundle.
 *   Uses PicoSHA2 for hashing.
@@ -64,6 +76,15 @@ codebundler bundle bundle.txt
 
 # Bundle to standard output
 codebundler bundle
+
+# Leave out a directory or a whole file type
+codebundler bundle --exclude tests --exclude '*.png' bundle.txt
+
+# Include mode: only what is named, which is how a tree is cut down to fit
+codebundler bundle --include src --include include --include CMakeLists.txt small.txt
+
+# See what a selection would carry, with sizes, without writing a bundle
+codebundler bundle --list --exclude tests
 
 # Bundle with a custom separator
 codebundler bundle --separator="CUSTOM_SEPARATOR" bundle.txt
@@ -101,6 +122,7 @@ Checksum: SHA256:<sha256_hash_of_file2_content>
 <SEPARATOR>
 ...
 # Skipped binary file: <path/to/binary>     (one line per file left out, if any)
+# Excluded: <n> files (<rule>)             (one line per selection rule that left files out)
 ```
 
 ## Building

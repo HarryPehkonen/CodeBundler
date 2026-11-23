@@ -14,9 +14,11 @@ message(STATUS "Configuring CodeBundler tests...")
 # Add test executable
 add_executable(codebundler_tests
     test_bundler.cpp      # Add test files here
+    test_filefilter.cpp
     test_unbundler.cpp
     # Include implementations needed for tests, or link the main library if built as one
     ../src/bundler.cpp
+    ../src/filefilter.cpp
     ../src/unbundler.cpp
     ../src/bundleparser.cpp
     ../src/utilities.cpp

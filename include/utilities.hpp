@@ -82,6 +82,20 @@ namespace utilities {
     bool isBinaryFile(const std::filesystem::path& filepath);
 
     /**
+     * @brief The top level of the current Git repository.
+     * @return The directory `git rev-parse --show-toplevel` reports, or the
+     *         current directory when Git has no answer (not a repository).
+     */
+    std::filesystem::path getGitTopLevel();
+
+    /**
+     * @brief The lines of the repository's IGNORE_FILE_NAME file.
+     * @return Its lines, or an empty list when the file does not exist.
+     * @throws FileIOException If the file exists but cannot be read.
+     */
+    std::vector<std::string> readIgnoreFile();
+
+    /**
      * @brief Checks if a string starts with a specific prefix.
      * @param str The string to check.
      * @param prefix The prefix to look for.

@@ -17,11 +17,22 @@ void printUsage(std::string defaultSeparator)
 
 Commands:
   bundle [output_file]         Bundle tracked files. Writes to stdout if no output_file.
+    --include <pattern>        Bundle only what a pattern admits; naming one switches
+                               to include mode (repeatable).
+    --exclude <pattern>        Leave out what a pattern matches (repeatable).
+    --list                     Report what would be bundled, with per-file sizes,
+                               and write nothing.
     --separator <sep>          Specify a custom separator string (default: ")"
               << defaultSeparator
               << R"(").
     --description <desc>       Add an optional description to the bundle header.
     -v, --verbose              Enable verbose output (1-4 levels).
+
+  Patterns are gitignore-flavoured globs: a bare name matches any path component,
+  one containing a slash is anchored at the repository root, '*' does not cross a
+  slash, '**' does, and a trailing slash means directories only. The repository's
+  own .codebundlerignore holds the rules it always wants; see the PATTERNS
+  section of man codebundler(1).
 
   unbundle [input_file] [output_dir] Unbundle files from archive. Reads from stdin if no input_file.
                                Extracts to current directory if no output_dir.
@@ -99,6 +110,25 @@ Arguments parseArguments(int argc, char* argv[])
                 throw codebundler::ArgumentParserException("--trial-run is only applicable to the 'unbundle' command.");
             }
             args.options.trialRun = true;
+        } else if (token == "--include" || token == "--exclude") {
+            // Selection patterns belong to the bundle command only.
+            if (args.command != "bundle") {
+                throw codebundler::ArgumentParserException(token + " is only applicable to the 'bundle' command.");
+            }
+            if (++currentArg < tokens.size()) {
+                if (token == "--include") {
+                    args.options.includePatterns.push_back(tokens[currentArg]);
+                } else {
+                    args.options.excludePatterns.push_back(tokens[currentArg]);
+                }
+            } else {
+                throw codebundler::ArgumentParserException(token + " requires an argument.");
+            }
+        } else if (token == "--list") {
+            if (args.command != "bundle") {
+                throw codebundler::ArgumentParserException("--list is only applicable to the 'bundle' command.");
+            }
+            args.options.listOnly = true;
         } else if (token == "--no-verify") {
             // Allow --no-verify only for unbundle command
             if (args.command != "unbundle") {
@@ -177,6 +207,9 @@ int main(int argc, char* argv[])
                       << "Output directory: " << args.outputDir << "\n"
                       << "Description: " << args.description << "\n"
                       << "Separator: " << args.options.separator << "\n"
+                      << "Include patterns: " << args.options.includePatterns.size() << "\n"
+                      << "Exclude patterns: " << args.options.excludePatterns.size() << "\n"
+                      << "List only: " << (args.options.listOnly ? "true" : "false") << "\n"
                       << "Trial run: " << (args.options.trialRun ? "true" : "false") << "\n"
                       << "Verify: " << (args.options.verify ? "true" : "false") << "\n"
                       << "Show help: " << (args.showHelp ? "true" : "false") << "\n"
@@ -191,7 +224,12 @@ int main(int argc, char* argv[])
 
         if (args.command == "bundle") {
             codebundler::Bundler bundler(args.options); // Use provided or default separator
-            if (args.outputFile.empty()) {
+            if (args.options.listOnly) {
+                // A report, not a bundle: nothing is written, even when an
+                // output file was named on the command line.
+                args.options.verbose > 0 && std::cerr << "List mode: no bundle is written." << std::endl;
+                bundler.listToStream(std::cout);
+            } else if (args.outputFile.empty()) {
                 // Bundle to standard output
                 bundler.bundleToStream(std::cout, args.description);
             } else {

@@ -2,6 +2,7 @@
 #include "constants.hpp"
 #include "exceptions.hpp"
 #include "options.hpp"
+#include "unbundler.hpp"
 #include "utilities.hpp" // For helpers if needed
 #include <cstdlib> // For system()
 #include <filesystem> // Requires C++17
@@ -81,16 +82,15 @@ void cleanup_test_git_repo(const std::filesystem::path& repo_path)
     // Ignore errors during cleanup
 }
 
-// Bundle the repository at repo_path and return the bundle text. Bundling
-// shells out to `git ls-files`, so the bundler has to run with that repository
-// as the working directory.
-std::string bundle_repo(const std::filesystem::path& repo_path)
+// Bundle the repository at repo_path with these options and return the bundle
+// text. Bundling shells out to `git ls-files`, so the bundler has to run with
+// that repository as the working directory.
+std::string bundle_repo_with(const std::filesystem::path& repo_path, const codebundler::Options& options)
 {
     const std::filesystem::path original_cwd = std::filesystem::current_path();
     std::string bundleContent;
     std::filesystem::current_path(repo_path);
     try {
-        codebundler::Options options;
         codebundler::Bundler bundler(options);
         std::stringstream output;
         bundler.bundleToStream(output);
@@ -101,6 +101,32 @@ std::string bundle_repo(const std::filesystem::path& repo_path)
     }
     std::filesystem::current_path(original_cwd);
     return bundleContent;
+}
+
+// Bundle the repository at repo_path with default options and return the text.
+std::string bundle_repo(const std::filesystem::path& repo_path)
+{
+    codebundler::Options options;
+    return bundle_repo_with(repo_path, options);
+}
+
+// A tiny tree with a source directory, a test directory and a document - the
+// shape a selection rule is asked to cut.
+void setup_selection_repo(const std::filesystem::path& repo_path)
+{
+    setup_repo_with_files(repo_path,
+        { { "src/main.cpp", "int main() { return 0; }\n" },
+            { "src/util.cpp", "int util();\n" },
+            { "tests/test_main.cpp", "TEST(Main, Runs) {}\n" },
+            { "tests/test_util.cpp", "TEST(Util, Runs) {}\n" },
+            { "docs/NOTES.md", "notes about the tree\n" } });
+}
+
+// Write a repository's selection file. Written after the fixture's commit, so it
+// is untracked: the file supplies rules, it does not have to be bundled itself.
+void write_ignore_file(const std::filesystem::path& repo_path, const std::string& contents)
+{
+    std::ofstream(repo_path / codebundler::IGNORE_FILE_NAME, std::ios::binary | std::ios::trunc).write(contents.data(), static_cast<std::streamsize>(contents.size()));
 }
 
 // Test fixture for bundler tests that need a git repo
@@ -335,8 +361,230 @@ TEST(BundlerLateNulTest, SkipsFileWithNulPastTheSniffWindow)
     EXPECT_EQ(bundleContent.find('\0'), std::string::npos);
 }
 
+//--------------------------------------------------------------------------
+// Selection: --exclude, --include and .codebundlerignore
+//--------------------------------------------------------------------------
+
+// Excluding a directory leaves its files out and names the rule, so nothing is
+// dropped silently - the same contract the binary note has.
+TEST(BundlerSelectionTest, ExcludingADirectoryNamesTheRuleInTheNote)
+{
+    const std::filesystem::path repo_path = std::filesystem::temp_directory_path() / "codebundler_selection_exclude_repo";
+    cleanup_test_git_repo(repo_path);
+    setup_selection_repo(repo_path);
+
+    codebundler::Options options;
+    options.excludePatterns = { "tests" };
+    const std::string bundleContent = bundle_repo_with(repo_path, options);
+    cleanup_test_git_repo(repo_path);
+
+    EXPECT_NE(bundleContent.find(codebundler::FILENAME_PREFIX + "src/main.cpp"), std::string::npos);
+    EXPECT_NE(bundleContent.find(codebundler::FILENAME_PREFIX + "docs/NOTES.md"), std::string::npos);
+    EXPECT_EQ(bundleContent.find("tests/test_main.cpp"), std::string::npos);
+    EXPECT_EQ(bundleContent.find("tests/test_util.cpp"), std::string::npos);
+    EXPECT_NE(bundleContent.find(codebundler::EXCLUDED_NOTE_PREFIX + "2 files (tests)"), std::string::npos);
+}
+
+// A single excluded file reads "1 file", not "1 file(s)".
+TEST(BundlerSelectionTest, TheNoteCountsInWholeWords)
+{
+    const std::filesystem::path repo_path = std::filesystem::temp_directory_path() / "codebundler_selection_one_repo";
+    cleanup_test_git_repo(repo_path);
+    setup_selection_repo(repo_path);
+
+    codebundler::Options options;
+    options.excludePatterns = { "docs" };
+    const std::string bundleContent = bundle_repo_with(repo_path, options);
+    cleanup_test_git_repo(repo_path);
+
+    EXPECT_NE(bundleContent.find(codebundler::EXCLUDED_NOTE_PREFIX + "1 file (docs)"), std::string::npos);
+}
+
+// Naming anything with --include switches the mode: a bundle is then only what a
+// rule admits, which is the shape a size problem is solved with.
+TEST(BundlerSelectionTest, NamingAnIncludeSwitchesToIncludeMode)
+{
+    const std::filesystem::path repo_path = std::filesystem::temp_directory_path() / "codebundler_selection_include_repo";
+    cleanup_test_git_repo(repo_path);
+    setup_selection_repo(repo_path);
+
+    codebundler::Options options;
+    options.includePatterns = { "src" };
+    const std::string bundleContent = bundle_repo_with(repo_path, options);
+    cleanup_test_git_repo(repo_path);
+
+    EXPECT_NE(bundleContent.find(codebundler::FILENAME_PREFIX + "src/main.cpp"), std::string::npos);
+    EXPECT_NE(bundleContent.find(codebundler::FILENAME_PREFIX + "src/util.cpp"), std::string::npos);
+    EXPECT_EQ(bundleContent.find("docs/NOTES.md"), std::string::npos);
+    EXPECT_EQ(bundleContent.find("tests/test_main.cpp"), std::string::npos);
+    // What nothing named is counted, not silently dropped.
+    EXPECT_NE(bundleContent.find(codebundler::EXCLUDED_NOTE_PREFIX + "3 files (" + codebundler::EXCLUDED_BY_DEFAULT + ")"),
+        std::string::npos);
+}
+
+// An include is the more specific statement, so it wins over an exclude however
+// the two were ordered on the command line.
+TEST(BundlerSelectionTest, AnIncludeOverridesAnExclude)
+{
+    const std::filesystem::path repo_path = std::filesystem::temp_directory_path() / "codebundler_selection_override_repo";
+    cleanup_test_git_repo(repo_path);
+    setup_selection_repo(repo_path);
+
+    codebundler::Options options;
+    options.excludePatterns = { "*" }; // every file in the tree
+    options.includePatterns = { "src/main.cpp" }; // ...except this one
+    const std::string bundleContent = bundle_repo_with(repo_path, options);
+    cleanup_test_git_repo(repo_path);
+
+    EXPECT_NE(bundleContent.find(codebundler::FILENAME_PREFIX + "src/main.cpp"), std::string::npos);
+    EXPECT_EQ(bundleContent.find("src/util.cpp"), std::string::npos);
+    EXPECT_EQ(bundleContent.find("tests/test_main.cpp"), std::string::npos);
+    EXPECT_NE(bundleContent.find(codebundler::EXCLUDED_NOTE_PREFIX + "4 files (*)"), std::string::npos);
+}
+
+// The repository's own file supplies rules without any flag: the exclusion set
+// is a property of the project, not of one invocation.
+TEST(BundlerSelectionTest, TheSelectionFileInTheRepositoryRootIsHonoured)
+{
+    const std::filesystem::path repo_path = std::filesystem::temp_directory_path() / "codebundler_selection_file_repo";
+    cleanup_test_git_repo(repo_path);
+    setup_selection_repo(repo_path);
+    write_ignore_file(repo_path, "# what this tree never bundles\ndocs/\ntests/test_util.cpp\n");
+
+    const std::string bundleContent = bundle_repo(repo_path);
+    cleanup_test_git_repo(repo_path);
+
+    // No entry for either, though the note legitimately names the second rule.
+    EXPECT_EQ(bundleContent.find(codebundler::FILENAME_PREFIX + "docs/NOTES.md"), std::string::npos);
+    EXPECT_EQ(bundleContent.find(codebundler::FILENAME_PREFIX + "tests/test_util.cpp"), std::string::npos);
+    EXPECT_NE(bundleContent.find(codebundler::FILENAME_PREFIX + "tests/test_main.cpp"), std::string::npos);
+    EXPECT_NE(bundleContent.find(codebundler::EXCLUDED_NOTE_PREFIX + "1 file (docs/)"), std::string::npos);
+    EXPECT_NE(bundleContent.find(codebundler::EXCLUDED_NOTE_PREFIX + "1 file (tests/test_util.cpp)"), std::string::npos);
+}
+
+// The command line overrides the repository's file: an include re-admits what
+// the file removed.
+TEST(BundlerSelectionTest, TheCommandLineOverridesTheSelectionFile)
+{
+    const std::filesystem::path repo_path = std::filesystem::temp_directory_path() / "codebundler_selection_cli_repo";
+    cleanup_test_git_repo(repo_path);
+    setup_selection_repo(repo_path);
+    write_ignore_file(repo_path, "docs/\n");
+
+    codebundler::Options options;
+    options.includePatterns = { "docs/NOTES.md" }; // the file's rule said no
+    const std::string bundleContent = bundle_repo_with(repo_path, options);
+    cleanup_test_git_repo(repo_path);
+
+    EXPECT_NE(bundleContent.find(codebundler::FILENAME_PREFIX + "docs/NOTES.md"), std::string::npos);
+    EXPECT_EQ(bundleContent.find("src/main.cpp"), std::string::npos); // include mode: not named, not bundled
+}
+
+// The last test the file used to list as missing: the notes must be comments to
+// unbundle as well, or an excluded tree would come back with junk entries.
+TEST(BundlerSelectionTest, TheNotesAreCommentsWhenUnbundled)
+{
+    using namespace codebundler;
+
+    const std::filesystem::path repo_path = std::filesystem::temp_directory_path() / "codebundler_selection_roundtrip_repo";
+    cleanup_test_git_repo(repo_path);
+    setup_repo_with_files(repo_path, { { "src/main.cpp", "int main() { return 0; }\n" }, { "tests/test_main.cpp", "TEST(Main, Runs) {}\n" } });
+
+    Options options;
+    options.excludePatterns = { "tests" };
+    const std::string bundleContent = bundle_repo_with(repo_path, options);
+
+    const std::filesystem::path out_dir = std::filesystem::temp_directory_path() / "codebundler_selection_roundtrip_out";
+    std::filesystem::remove_all(out_dir);
+
+    Options unbundleOptions;
+    Unbundler unbundler(unbundleOptions);
+    std::istringstream bundleStream(bundleContent);
+    ASSERT_NO_THROW(unbundler.unbundleFromStream(bundleStream, out_dir));
+
+    EXPECT_TRUE(std::filesystem::exists(out_dir / "src" / "main.cpp"));
+    EXPECT_FALSE(std::filesystem::exists(out_dir / "tests")); // excluded, and not restored
+    for (const auto& entry : std::filesystem::directory_iterator(out_dir)) {
+        EXPECT_NE(entry.path().filename().string().rfind("#", 0), 0u) << "a note became a file";
+    }
+
+    cleanup_test_git_repo(repo_path);
+    std::filesystem::remove_all(out_dir);
+}
+
+//--------------------------------------------------------------------------
+// --list: the size question answered without writing a bundle
+//--------------------------------------------------------------------------
+
+TEST(BundlerListTest, ListReportsSizesAndWritesNoBundle)
+{
+    const std::filesystem::path repo_path = std::filesystem::temp_directory_path() / "codebundler_list_repo";
+    cleanup_test_git_repo(repo_path);
+    setup_repo_with_files(repo_path, { { "a.txt", "12345\n" }, // 6 bytes as bundled
+                                         { "b.txt", "ab\n" }, // 3 bytes
+                                         { "tests/test_a.cpp", "TEST(A, Runs) {}\n" } });
+
+    codebundler::Options options;
+    options.listOnly = true;
+    options.excludePatterns = { "tests" };
+
+    const std::filesystem::path original_cwd = std::filesystem::current_path();
+    std::filesystem::current_path(repo_path);
+    std::stringstream report;
+    try {
+        codebundler::Bundler bundler(options);
+        bundler.listToStream(report);
+    } catch (...) {
+        std::filesystem::current_path(original_cwd);
+        cleanup_test_git_repo(repo_path);
+        throw;
+    }
+    std::filesystem::current_path(original_cwd);
+    cleanup_test_git_repo(repo_path);
+
+    const std::string listing = report.str();
+    EXPECT_NE(listing.find("a.txt"), std::string::npos);
+    EXPECT_NE(listing.find("b.txt"), std::string::npos);
+    EXPECT_EQ(listing.find("tests/test_a.cpp"), std::string::npos);
+    EXPECT_NE(listing.find("Total: 2 files, 9 bytes of content"), std::string::npos);
+    EXPECT_NE(listing.find("Excluded: 1 file (tests)"), std::string::npos);
+    // A report, not a bundle: no separator and no entry headers in it.
+    EXPECT_EQ(listing.find(options.separator), std::string::npos);
+    EXPECT_EQ(listing.find(codebundler::FILENAME_PREFIX), std::string::npos);
+}
+
+// A binary file is counted, not inlined: the list must agree with what a bundle
+// would actually carry.
+TEST(BundlerListTest, ListCountsBinariesSeparately)
+{
+    const std::filesystem::path repo_path = std::filesystem::temp_directory_path() / "codebundler_list_binary_repo";
+    cleanup_test_git_repo(repo_path);
+    setup_test_git_repo(repo_path); // holds file1.txt and a binary subdir/file2.bin
+
+    codebundler::Options options;
+    options.listOnly = true;
+
+    const std::filesystem::path original_cwd = std::filesystem::current_path();
+    std::filesystem::current_path(repo_path);
+    std::stringstream report;
+    try {
+        codebundler::Bundler bundler(options);
+        bundler.listToStream(report);
+    } catch (...) {
+        std::filesystem::current_path(original_cwd);
+        cleanup_test_git_repo(repo_path);
+        throw;
+    }
+    std::filesystem::current_path(original_cwd);
+    cleanup_test_git_repo(repo_path);
+
+    const std::string listing = report.str();
+    EXPECT_NE(listing.find("file1.txt"), std::string::npos);
+    EXPECT_EQ(listing.find("subdir/file2.bin"), std::string::npos);
+    EXPECT_NE(listing.find("Not inlined: 1 file, binary"), std::string::npos);
+}
+
 // Add more tests:
 // - Bundling an empty repository
 // - Bundling when git command fails (might need mocking or more complex setup)
-// - Bundling specific files (if that feature is added)
 // - Error handling for unreadable files

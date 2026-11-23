@@ -239,6 +239,37 @@ namespace utilities {
     }
 
     /**
+     * @brief The top level of the current Git repository.
+     *
+     * The selection file lives there rather than beside the current directory,
+     * so a bundle taken from a subdirectory obeys the same rules as one taken
+     * from the top.
+     */
+    std::filesystem::path getGitTopLevel()
+    {
+        const std::string command = "git rev-parse --show-toplevel";
+        auto [exit_code, output] = executeCommand(command);
+        const std::string line = trim(output);
+        if (exit_code != 0 || line.empty()) {
+            return std::filesystem::current_path();
+        }
+        return std::filesystem::path(line);
+    }
+
+    /**
+     * @brief The lines of the repository's selection file.
+     */
+    std::vector<std::string> readIgnoreFile()
+    {
+        const std::filesystem::path path = getGitTopLevel() / codebundler::IGNORE_FILE_NAME;
+        std::error_code ec;
+        if (!std::filesystem::exists(path, ec)) {
+            return {};
+        }
+        return readFileLines(path);
+    }
+
+    /**
      * @brief Trims leading and trailing whitespace from a string.
      * @param str The string to trim.
      * @return The trimmed string.
