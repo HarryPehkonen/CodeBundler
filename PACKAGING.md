@@ -220,6 +220,16 @@ test: a package that installs nowhere else installs there.
   leading `` ` `` as the start of a fenced literal block and aborts the whole man
   page: `Error at <line>: Expected ``` and a newline to begin literal block`.
   Rephrase so the backtick is not the first character of the line.
+* **Two more scdoc traps in that same kind of block, both hit while documenting
+  the PATTERNS section.** A tab-indented line starting with `[` is read as a
+  TABLE row and scdoc aborts with `Tables cannot be indented` — so a character
+  class cannot begin the line (`class [a-z]` is fine, `[a-z]` is not). And an
+  ODD number of `*` in one block opens bold that never closes
+  (`Expected * before starting new paragraph`), so a literal glob asterisk needs
+  `\*` (which renders as a single `*`, while `\*\*` renders `**`); `\` alone
+  renders nothing, so a literal backslash row needs `\\`. Both mistakes cost a
+  build each: scdoc fails the man page, and the man page is an install dependency
+  of the `manpage` target, so `cmake --build` fails before packaging does.
 * `dpkg-deb -c`/`rpm -qlp` show what a package *contains*; only installing it
   shows whether a Fedora client will accept it. Check both `apt` and `dnf` on
   the real clients before calling a release done.
