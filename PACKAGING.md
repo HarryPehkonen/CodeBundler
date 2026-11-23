@@ -21,9 +21,9 @@ cpack -G "DEB;RPM" --config build-pkg/CPackConfig.cmake -B build-pkg/pkgs
 
 Artifacts (names come from `DEB-DEFAULT` / `RPM-DEFAULT`):
 
-* `codebundler_1.0.2_amd64.deb` — Debian/Ubuntu on x86_64
-* `codebundler-1.0.2-1.x86_64.rpm` — Fedora/Nobara
-* `codebundler_1.0.2_arm64.deb` — built on the Pi, see below
+* `codebundler_1.0.3_amd64.deb` — Debian/Ubuntu on x86_64
+* `codebundler-1.0.3-1.x86_64.rpm` — Fedora/Nobara
+* `codebundler_1.0.3_arm64.deb` — built on the Pi, see below
 
 `CODEBUNDLER_REQUIRE_SYSTEM_FSMGINE=ON` is not optional for a package build: it
 makes configuration fail loudly when the system FSMgine is missing instead of
@@ -114,9 +114,9 @@ key), driven by `~/hermes-workspace/pkg-repo/`:
 
 ```bash
 cd ~/hermes-workspace/pkg-repo
-./publish-apt.sh add <path>/codebundler_1.0.2_amd64.deb    # pool/main + Packages + signed InRelease + rsync
-./publish-apt.sh add <path>/codebundler_1.0.2_arm64.deb    # same pool, other architecture
-./publish-rpm.sh add <path>/codebundler-1.0.2-1.x86_64.rpm # Packages/ + rpmsign + createrepo_c + rsync
+./publish-apt.sh add <path>/codebundler_1.0.3_amd64.deb    # pool/main + Packages + signed InRelease + rsync
+./publish-apt.sh add <path>/codebundler_1.0.3_arm64.deb    # same pool, other architecture
+./publish-rpm.sh add <path>/codebundler-1.0.3-1.x86_64.rpm # Packages/ + rpmsign + createrepo_c; then `publish` to rsync
 ./publish-rpm.sh check                                     # verify signatures only, no writes, no push
 python3 gen-packages.py                                    # regenerate pehkonen.dev/packages/index.html
 ```
@@ -167,12 +167,15 @@ test: a package that installs nowhere else installs there.
   half-published release stays in the pool forever.
 * **arm64 is built on demand, not automatically.** Rebuilding amd64 + rpm
   without rebuilding arm64 leaves the Pi on the old version while the other
-  machines move on. 1.0.2 is published for all three forms
+  machines move on. 1.0.3 is published for all three forms
   (`amd64.deb`, `arm64.deb`, `x86_64.rpm`); keep it that way per release, or
-  accept the drift knowingly.
+  accept the drift knowingly. `python3 ~/hermes-workspace/pkg-repo/repo-status.py`
+  is the check: it lists a row per version and flags a form that is missing or at
+  a different revision, so a half-published release is visible before a client
+  finds it.
 * **RPM `Release` is `1`**, whereas the pre-CPack hand-built rpms used
-  `1.fc44`. dnf compares version before release, so `1.0.2-1` upgrades
-  `1.0.1-2` normally; the repo path (`rpm/fedora/44/x86_64`) is what identifies
+  `1.fc44`. dnf compares version before release, so `1.0.3-1` upgrades
+  `1.0.2-1` normally; the repo path (`rpm/fedora/44/x86_64`) is what identifies
   the target distribution, not the file name.
 * **Rebuilding without a version bump needs a release bump.** The pool keeps
   superseded packages installable, so republishing different content under the
