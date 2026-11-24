@@ -24,6 +24,7 @@ Artifacts (names come from `DEB-DEFAULT` / `RPM-DEFAULT`):
 * `codebundler_1.0.3_amd64.deb` — Debian/Ubuntu on x86_64
 * `codebundler-1.0.3-1.x86_64.rpm` — Fedora/Nobara
 * `codebundler_1.0.3_arm64.deb` — built on the Pi, see below
+* `codebundler_1.0.3_armhf.deb` — built on the print server (ARMv6), see below
 
 `CODEBUNDLER_REQUIRE_SYSTEM_FSMGINE=ON` is not optional for a package build: it
 makes configuration fail loudly when the system FSMgine is missing instead of
@@ -70,6 +71,46 @@ Bundling a static FSMgine from a private prefix still satisfies
 `-- Using system-installed FSMgine from: /home/harri/fsmgine-2.2.0/prefix/lib/cmake/FSMGine`.
 Check that line; it is the difference between a deterministic build and a silent
 fetch.
+
+## Building the armhf package on the print server
+
+`laserjet` (Raspbian 13, ARMv6, one core, 426 MB RAM) is the only machine an armhf package
+is for, and **Debian's armhf baseline is ARMv7** — a cross build on `hermes` would have to
+pass `-march=armv6` explicitly to produce code that CPU can run, plus a foreign-arch sysroot
+for both readline and `dpkg-shlibdeps`. Build it on the box instead: Raspbian's own gcc
+targets ARMv6 by default (every binary in the published armhf debs carries
+`Tag_CPU_arch: v6`), `dpkg-shlibdeps` derives `Depends` natively, and the artifact has the
+same shape as the amd64 and arm64 ones.
+
+Add a swapfile before the first build: 2 GB, via `fallocate -l 2G /swapfile && chmod 600
+/swapfile && mkswap /swapfile && swapon /swapfile`. The box has 159 MB free and a
+template-heavy C++ build will otherwise be killed.
+
+```bash
+rsync -a --exclude=.git --exclude='build*' ~/hermes-workspace/CodeBundler/ laserjet:~/armhf-src/CodeBundler/
+ssh laserjet 'cd ~/armhf-src/CodeBundler && \
+  cmake -S . -B build-pkg -DCMAKE_BUILD_TYPE=Release -DCODEBUNDLER_ENABLE_TESTING=OFF \
+        -DCODEBUNDLER_REQUIRE_SYSTEM_FSMGINE=ON -DCMAKE_PREFIX_PATH=$HOME/fsmgine-2.2.0/prefix && \
+  cmake --build build-pkg -j1 && cpack -G DEB --config build-pkg/CPackConfig.cmake -B build-pkg/pkgs'
+scp laserjet:~/armhf-src/CodeBundler/build-pkg/pkgs/codebundler_<version>_armhf.deb .
+cd ~/hermes-workspace/pkg-repo && ./publish-apt.sh add ./codebundler_<version>_armhf.deb
+```
+
+That private FSMgine prefix has to exist **on the print server** (same path as the Pi's
+arm64 build, but a different filesystem — build it there, statically, before CodeBundler):
+
+```bash
+ssh laserjet 'git clone --branch v2.2.0 --depth 1 https://github.com/HarryPehkonen/FSMgine.git ~/fsmgine-2.2.0 && \
+  cmake -S ~/fsmgine-2.2.0 -B ~/fsmgine-2.2.0/build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF \
+        -DCMAKE_INSTALL_PREFIX=$HOME/fsmgine-2.2.0/prefix && \
+  cmake --build ~/fsmgine-2.2.0/build -j1 --target install'
+```
+
+The packaging gate is **not** run for an armhf release: `scripts/package.sh` builds both
+packages on the host it runs on, and no host that can run it can build armhf. The armhf
+artifact is verified the way a client consumes it instead — install it on `laserjet` and run
+it (2026-11-23: installed from the repo, `codebundler bundle --exclude tests` in a scratch
+repo left `tests/` out and wrote `# Excluded: 1 file (tests)` into the trailer).
 
 ## The packaging gate
 
@@ -167,12 +208,15 @@ test: a package that installs nowhere else installs there.
   half-published release stays in the pool forever.
 * **arm64 is built on demand, not automatically.** Rebuilding amd64 + rpm
   without rebuilding arm64 leaves the Pi on the old version while the other
-  machines move on. 1.0.3 is published for all three forms
-  (`amd64.deb`, `arm64.deb`, `x86_64.rpm`); keep it that way per release, or
-  accept the drift knowingly. `python3 ~/hermes-workspace/pkg-repo/repo-status.py`
+  machines move on. 1.0.3 is published for all four forms
+  (`amd64.deb`, `arm64.deb`, `armhf.deb`, `x86_64.rpm`); keep it that way per
+  release, or accept the drift knowingly. `python3 ~/hermes-workspace/pkg-repo/repo-status.py`
   is the check: it lists a row per version and flags a form that is missing or at
   a different revision, so a half-published release is visible before a client
-  finds it.
+  finds it. `pkg-repo/audit-repo.py` compares all three apt architectures too —
+  until 2026-11-23 its armhf column skipped arch-specific stanzas, which is why
+  the print server read "all at newest" while eight of nine packages had no
+  armhf build at all.
 * **RPM `Release` is `1`**, whereas the pre-CPack hand-built rpms used
   `1.fc44`. dnf compares version before release, so `1.0.3-1` upgrades
   `1.0.2-1` normally; the repo path (`rpm/fedora/44/x86_64`) is what identifies
